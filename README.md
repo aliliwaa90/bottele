@@ -92,22 +92,65 @@ Endpoints:
 
 ### Vercel
 
-- Deploy `mini-app` and `admin` on Vercel as separate projects.
-- `mini-app`:
-  - Root Directory: `mini-app`
-  - Build: `npm run build --workspace @vaulttap/mini-app`
-- `admin`:
-  - Root Directory: `admin`
-  - Build: `npm run build --workspace @vaulttap/admin`
+Deploy 4 separate Vercel projects from the same monorepo:
 
-### Railway (Recommended for backend/bot)
+1. `backend` (Express API on Vercel Function)
+2. `bot` (Telegram webhook on Vercel Function)
+3. `mini-app` (Vite static + preview server)
+4. `admin` (Next.js)
 
-- Deploy `backend` + `bot` on Railway.
-- Set a MongoDB connection string in `DATABASE_URL`.
+`backend`:
+- Root Directory: `backend`
+- Build Command: `npm ci --include=dev && npm run build`
+- Output: default
+- Required env:
+  - `NODE_ENV=production`
+  - `DATABASE_URL=<mongodb connection string>`
+  - `JWT_SECRET=<very-strong-secret>`
+  - `BACKEND_PORT=4000`
+  - `SOCKET_ENABLED=false`
+  - `TELEGRAM_LOGIN_REQUIRED=false`
+  - `CORS_ORIGIN=<mini-app-url>,<admin-url>`
+  - `SOCKET_CORS_ORIGIN=<mini-app-url>,<admin-url>`
+
+`bot`:
+- Root Directory: `bot`
+- Build Command: `npm ci --include=dev && npm run build`
+- Required env:
+  - `TELEGRAM_BOT_TOKEN=<botfather token>`
+  - `BACKEND_URL=<backend vercel url>`
+  - `TELEGRAM_WEBAPP_URL=<mini-app vercel url>`
+  - `BOT_RUN_MODE=webhook`
+  - `TELEGRAM_WEBHOOK_URL=<bot vercel url>/api/webhook`
+  - `TELEGRAM_WEBHOOK_SECRET=<random secret>`
+  - `BOT_SETUP_KEY=<random secret>`
+- After first deploy, register webhook:
+  - `POST <bot vercel url>/api/setup?key=<BOT_SETUP_KEY>`
+
+`mini-app`:
+- Root Directory: `mini-app`
+- Build Command: `npm ci --include=dev && npm run build`
+- Start Command: `npm run start`
+- Required env:
+  - `VITE_API_URL=<backend vercel url>/api`
+  - `VITE_SOCKET_URL=<backend vercel url>`
+  - `VITE_DISABLE_SOCKET=true`
+  - `VITE_TON_MANIFEST_URL=<mini-app vercel url>/tonconnect-manifest.json`
+
+`admin`:
+- Root Directory: `admin`
+- Build Command: `npm ci --include=dev && npm run build`
+- Start Command: `npm run start`
+- Required env:
+  - `BACKEND_URL=<backend vercel url>`
+  - `ADMIN_TOKEN=<admin jwt token>`
+  - `NEXT_PUBLIC_SOCKET_URL=<backend vercel url>`
+  - `NEXT_PUBLIC_DISABLE_SOCKET=true`
 
 ### MongoDB Atlas
 
-- Create a cluster and copy the app connection string, then set it as `DATABASE_URL`.
+- Create cluster and whitelist Vercel/0.0.0.0 network access.
+- Use Atlas connection string in backend `DATABASE_URL`.
 
 ## Security Note (Important)
 

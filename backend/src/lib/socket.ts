@@ -11,6 +11,14 @@ type SocketClaims = {
 };
 
 let io: Server | undefined;
+const noopSocket = {
+  to() {
+    return noopSocket;
+  },
+  emit() {
+    return false;
+  }
+};
 
 export function initSocket(server: HttpServer): Server {
   io = new Server(server, {
@@ -47,8 +55,5 @@ export function initSocket(server: HttpServer): Server {
 }
 
 export function getSocket(): Server {
-  if (!io) {
-    throw new Error("Socket.io has not been initialized yet.");
-  }
-  return io;
+  return io ?? (noopSocket as unknown as Server);
 }

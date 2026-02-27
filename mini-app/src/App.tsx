@@ -51,6 +51,7 @@ function playTapSound() {
 
 export default function App() {
   const { t, i18n } = useTranslation();
+  const socketEnabled = import.meta.env.VITE_DISABLE_SOCKET !== "true";
   const [loading, setLoading] = useState(true);
   const [outsideTelegram, setOutsideTelegram] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -126,18 +127,20 @@ export default function App() {
           initData: tgInitData ?? undefined
         });
         api.setToken(login.token);
-        const socket = connectSocket(login.token);
-        socket.on("user:update", (payload: User) => {
-          if (!mounted) return;
-          setUser(payload);
-        });
-        socket.on("leaderboard:update", (payload: LeaderboardItem[]) => {
-          if (!mounted || leaderboardType !== "global") return;
-          setLeaderboard(payload);
-        });
-        socket.on("mass:notification", (payload: { title: string; body: string }) => {
-          toast.info(payload.title, { description: payload.body });
-        });
+        if (socketEnabled) {
+          const socket = connectSocket(login.token);
+          socket.on("user:update", (payload: User) => {
+            if (!mounted) return;
+            setUser(payload);
+          });
+          socket.on("leaderboard:update", (payload: LeaderboardItem[]) => {
+            if (!mounted || leaderboardType !== "global") return;
+            setLeaderboard(payload);
+          });
+          socket.on("mass:notification", (payload: { title: string; body: string }) => {
+            toast.info(payload.title, { description: payload.body });
+          });
+        }
 
         await refreshBaseData(leaderboardType);
 
@@ -156,7 +159,9 @@ export default function App() {
     void init();
     return () => {
       mounted = false;
-      disconnectSocket();
+      if (socketEnabled) {
+        disconnectSocket();
+      }
     };
   }, []);
 

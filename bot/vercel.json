@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "api/webhook.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 10
+    },
+    "api/setup.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 10
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/webhook",
+      "dest": "api/webhook.ts"
+    },
+    {
+      "src": "/api/setup",
+      "dest": "api/setup.ts"
+    }
+  ]
+}
+

@@ -30,17 +30,20 @@ export function DashboardOverview() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "فشل تحميل الإحصائيات."));
 
+    const socketDisabled = process.env.NEXT_PUBLIC_DISABLE_SOCKET === "true";
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL ?? "http://localhost:4000";
-    const socket = io(socketUrl, {
-      transports: ["websocket"],
-      autoConnect: true
-    });
-    socket.on("leaderboard:update", () => {
+    const socket = socketDisabled
+      ? null
+      : io(socketUrl, {
+          transports: ["websocket"],
+          autoConnect: true
+        });
+    socket?.on("leaderboard:update", () => {
       void adminApi.dashboard().then((response) => mounted && setData(response));
     });
     return () => {
       mounted = false;
-      socket.disconnect();
+      socket?.disconnect();
     };
   }, []);
 

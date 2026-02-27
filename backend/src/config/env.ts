@@ -6,6 +6,11 @@ config();
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   BACKEND_PORT: z.coerce.number().default(4000),
+  SOCKET_ENABLED: z
+    .enum(["true", "false"])
+    .optional()
+    .default(process.env.VERCEL ? "false" : "true")
+    .transform((value) => value === "true"),
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default("7d"),

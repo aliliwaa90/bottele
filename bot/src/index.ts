@@ -386,6 +386,7 @@ const BOT_COMMANDS = [
   { command: "ref", description: "عرض أداء الإحالات" },
   { command: "lang", description: "تغيير اللغة" }
 ];
+let commandsConfigured = false;
 
 const BOT_START_RETRY_MS = Number(process.env.BOT_START_RETRY_MS ?? 10000);
 
@@ -407,10 +408,16 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function startBotWithRetry(): Promise<void> {
+export async function ensureBotConfigured(): Promise<void> {
+  if (commandsConfigured) return;
+  await bot.api.setMyCommands(BOT_COMMANDS);
+  commandsConfigured = true;
+}
+
+export async function startBotWithRetry(): Promise<void> {
   while (true) {
     try {
-      await bot.api.setMyCommands(BOT_COMMANDS);
+      await ensureBotConfigured();
       await bot.start({
         onStart(botInfo) {
           console.log(`VaultTap bot started as @${botInfo.username}`);
@@ -432,4 +439,8 @@ async function startBotWithRetry(): Promise<void> {
   }
 }
 
-void startBotWithRetry();
+export { bot };
+
+if (env.BOT_RUN_MODE === "polling") {
+  void startBotWithRetry();
+}
