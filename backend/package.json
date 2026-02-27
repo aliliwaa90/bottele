@@ -12,8 +12,8 @@
     "lint": "echo \"Add ESLint if needed\"",
     "format": "echo \"Format from root if configured\"",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:dev": "prisma migrate dev",
-    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma db push",
+    "prisma:migrate:deploy": "prisma db push",
     "prisma:seed": "prisma db seed"
   },
   "prisma": {

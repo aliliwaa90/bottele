@@ -2,7 +2,6 @@ import { Router } from "express";
 import ExcelJS from "exceljs";
 import { StatusCodes } from "http-status-codes";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { getSocket } from "../lib/socket.js";
@@ -56,12 +55,12 @@ const toggleEventSchema = z.object({
 router.use(requireAuth, requireAdmin);
 
 router.get("/dashboard", async (_req, res) => {
-  const [totalUsers, activeToday, totalPointsAgg, topUsers, snapshotsCount, activeEvents] =
+  const [totalUsers, activeTodayEvents, totalPointsAgg, topUsers, snapshotsCount, activeEvents] =
     await Promise.all([
     prisma.user.count(),
-    prisma.tapEvent.groupBy({
-      by: ["userId"],
-      where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+    prisma.tapEvent.findMany({
+      where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      select: { userId: true }
     }),
     prisma.user.aggregate({ _sum: { points: true } }),
     prisma.user.findMany({
@@ -84,10 +83,11 @@ router.get("/dashboard", async (_req, res) => {
       }
     })
   ]);
+  const activeToday = new Set(activeTodayEvents.map((event) => event.userId)).size;
 
   res.json({
     totalUsers,
-    activeToday: activeToday.length,
+    activeToday,
     totalPoints: (totalPointsAgg._sum.points ?? BigInt(0)).toString(),
     snapshotsCount,
     activeEvents,
@@ -102,15 +102,15 @@ router.get("/dashboard", async (_req, res) => {
 router.get("/users", validateQuery(paginationSchema), async (req, res) => {
   const { page, limit, q } = req.query as unknown as z.infer<typeof paginationSchema>;
   const skip = (page - 1) * limit;
-  const filter: Prisma.UserWhereInput = q
+  const filter = q
     ? {
         OR: [
-          { username: { contains: q, mode: "insensitive" } },
-          { firstName: { contains: q, mode: "insensitive" } },
-          { referralCode: { contains: q, mode: "insensitive" } }
+          { username: { contains: q } },
+          { firstName: { contains: q } },
+          { referralCode: { contains: q } }
         ]
       }
-    : {};
+    : undefined;
 
   const [total, users] = await Promise.all([
     prisma.user.count({ where: filter }),

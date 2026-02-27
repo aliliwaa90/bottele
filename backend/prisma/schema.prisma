@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -20,7 +20,7 @@ enum TaskType {
 }
 
 model User {
-  id               String           @id @default(cuid())
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
   telegramId       BigInt           @unique
   username         String?
   firstName        String?
@@ -37,24 +37,24 @@ model User {
   totalTaps        BigInt           @default(0)
   walletAddress    String?
   referralCode     String           @unique
-  referredById     String?
+  referredById     String?          @db.ObjectId
   lastTapAt        DateTime?
   lastEnergyRefill DateTime         @default(now())
   lastProfitAt     DateTime         @default(now())
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
-  referredBy       User?            @relation("ReferralTree", fields: [referredById], references: [id])
+  referredBy       User?            @relation("ReferralTree", fields: [referredById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   referrals        User[]           @relation("ReferralTree")
   tasks            UserTask[]
   upgrades         UserUpgrade[]
   tapEvents        TapEvent[]
   snapshots        AirdropSnapshot[]
 
-  @@index([points(sort: Desc)])
+  @@index([points])
 }
 
 model Upgrade {
-  id            String        @id @default(cuid())
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
   key           String        @unique
   titleAr       String
   titleEn       String
@@ -71,20 +71,20 @@ model Upgrade {
 }
 
 model UserUpgrade {
-  id        String   @id @default(cuid())
-  userId    String
-  upgradeId String
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  upgradeId String   @db.ObjectId
   level     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  upgrade   Upgrade  @relation(fields: [upgradeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  upgrade   Upgrade  @relation(fields: [upgradeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([userId, upgradeId])
 }
 
 model Task {
-  id         String     @id @default(cuid())
+  id         String     @id @default(auto()) @map("_id") @db.ObjectId
   key        String     @unique
   titleAr    String
   titleEn    String
@@ -99,32 +99,32 @@ model Task {
 }
 
 model UserTask {
-  id          String   @id @default(cuid())
-  userId      String
-  taskId      String
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  taskId      String   @db.ObjectId
   claimDate   DateTime @default(now())
   rewardTaken Int
   createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([userId, claimDate])
 }
 
 model TapEvent {
-  id              String   @id @default(cuid())
-  userId          String
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId          String   @db.ObjectId
   taps            Int
   pointsEarned    Int
   comboMultiplier Float
   createdAt       DateTime @default(now())
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([userId, createdAt])
 }
 
 model SpecialEvent {
-  id        String   @id @default(cuid())
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
   key       String   @unique
   nameAr    String
   nameEn    String
@@ -137,13 +137,13 @@ model SpecialEvent {
 }
 
 model AirdropSnapshot {
-  id          String   @id @default(cuid())
-  userId      String
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
   points      BigInt
-  tokenAmount Decimal  @db.Decimal(20, 4)
+  tokenAmount Float
   batchTag    String
   createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([batchTag])
 }

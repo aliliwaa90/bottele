@@ -291,26 +291,30 @@ router.get("/leaderboard", validateQuery(leaderboardSchema), async (req, res) =>
 
   if (type === "weekly") {
     const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const events = await prisma.tapEvent.groupBy({
-      by: ["userId"],
-      where: {
-        createdAt: { gte: from }
-      },
-      _sum: { pointsEarned: true },
-      orderBy: { _sum: { pointsEarned: "desc" } },
-      take: limit
+    const events = await prisma.tapEvent.findMany({
+      where: { createdAt: { gte: from } },
+      select: { userId: true, pointsEarned: true }
     });
+    const scoreByUser = new Map<string, number>();
+    for (const event of events) {
+      const current = scoreByUser.get(event.userId) ?? 0;
+      scoreByUser.set(event.userId, current + event.pointsEarned);
+    }
+    const ranked = [...scoreByUser.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([userId, pointsEarned]) => ({ userId, pointsEarned }));
     const users = await prisma.user.findMany({
-      where: { id: { in: events.map((event) => event.userId) } },
+      where: { id: { in: ranked.map((event) => event.userId) } },
       select: { id: true, username: true, firstName: true }
     });
     const userMap = new Map(users.map((item) => [item.id, item]));
     res.json(
-      events.map((event, index) => ({
+      ranked.map((event, index) => ({
         rank: index + 1,
         id: event.userId,
         name: userMap.get(event.userId)?.username || userMap.get(event.userId)?.firstName || "VaultTaper",
-        points: String(event._sum.pointsEarned ?? 0)
+        points: String(event.pointsEarned)
       }))
     );
     return;

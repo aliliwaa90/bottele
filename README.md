@@ -41,7 +41,7 @@ VaultTap/
 
 - Node.js `22.x` recommended
 - npm `>= 10`
-- PostgreSQL `>= 15` (or Docker/Supabase)
+- MongoDB `>= 6` (local, Atlas, or Railway Mongo)
 
 ## Environment Setup
 
@@ -70,7 +70,7 @@ npm install
 
 ```bash
 npm run prisma:generate --workspace @vaulttap/backend
-npm run prisma:migrate:dev --workspace @vaulttap/backend -- --name init
+npm run prisma:migrate:dev --workspace @vaulttap/backend
 npm run prisma:seed --workspace @vaulttap/backend
 ```
 
@@ -103,11 +103,11 @@ Endpoints:
 ### Railway (Recommended for backend/bot)
 
 - Deploy `backend` + `bot` on Railway.
-- Connect PostgreSQL (Railway or Supabase).
+- Set a MongoDB connection string in `DATABASE_URL`.
 
-### Supabase
+### MongoDB Atlas
 
-- Use Supabase PostgreSQL and set `DATABASE_URL` in backend env.
+- Create a cluster and copy the app connection string, then set it as `DATABASE_URL`.
 
 ## Security Note (Important)
 
