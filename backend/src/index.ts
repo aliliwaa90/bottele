@@ -43,6 +43,8 @@ app.use(errorHandler);
 
 initSocket(server);
 
-server.listen(env.BACKEND_PORT, () => {
-  console.log(`VaultTap backend listening on port ${env.BACKEND_PORT}`);
+const port = Number(process.env.PORT ?? env.BACKEND_PORT);
+
+server.listen(port, () => {
+  console.log(`VaultTap backend listening on port ${port}`);
 });
