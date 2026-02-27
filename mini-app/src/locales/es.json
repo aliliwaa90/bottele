@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "Plataforma Tap-to-Earn rapida e inteligente"
+  },
+  "stats": {
+    "points": "Puntos",
+    "energy": "Energia",
+    "combo": "Combo",
+    "pph": "Ganancia/Hora"
+  },
+  "tabs": {
+    "tap": "Tap",
+    "upgrades": "Mejoras",
+    "tasks": "Tareas",
+    "referrals": "Referidos",
+    "leaderboard": "Ranking",
+    "wallet": "Billetera"
+  },
+  "tap": {
+    "tapNow": "Toca Ahora",
+    "gain": "Ganaste +{{value}}",
+    "energyLow": "Energia baja"
+  },
+  "upgrades": {
+    "title": "Tarjetas de mejora",
+    "level": "Nivel",
+    "cost": "Costo",
+    "buy": "Comprar",
+    "max": "Maximo",
+    "boostTap": "Poder de tap",
+    "boostPph": "Ganancia/hora",
+    "boostEnergy": "Capacidad de energia"
+  },
+  "tasks": {
+    "title": "Tareas diarias y sociales",
+    "claim": "Reclamar",
+    "claimed": "Reclamado",
+    "cipherPlaceholder": "Ingresa el cifrado diario",
+    "dailyCipherHint": "Formato del cifrado: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "Sistema de referidos",
+    "code": "Codigo de referido",
+    "level1": "Nivel 1",
+    "level2": "Nivel 2",
+    "estimatedRewards": "Recompensas estimadas"
+  },
+  "leaderboard": {
+    "title": "Tabla de lideres",
+    "global": "Global",
+    "weekly": "Semanal",
+    "friends": "Amigos",
+    "rank": "Puesto",
+    "player": "Jugador"
+  },
+  "wallet": {
+    "title": "Conectar billetera TON",
+    "connect": "Conectar billetera",
+    "claim": "Claim Airdrop",
+    "placeholder": "Direccion de billetera TON",
+    "estimated": "Cantidad estimada"
+  },
+  "events": {
+    "activeBooster": "Booster activo"
+  },
+  "common": {
+    "loading": "Cargando...",
+    "error": "Ocurrio un error",
+    "retry": "Reintentar",
+    "connected": "Conectado",
+    "language": "Idioma"
+  }
+}

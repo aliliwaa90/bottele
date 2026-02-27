@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tact-lang/tact/main/schema/tact.config.schema.json",
+  "projects": [
+    {
+      "name": "VaultTapJetton",
+      "path": "./contracts/VaultTapJetton.tact",
+      "output": "./generated"
+    }
+  ]
+}

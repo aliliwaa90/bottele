@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "فولت تاب",
+    "subtitle": "منصة Tap-to-Earn ذكية وسريعة"
+  },
+  "stats": {
+    "points": "النقاط",
+    "energy": "الطاقة",
+    "combo": "الكومبو",
+    "pph": "الربح/ساعة"
+  },
+  "tabs": {
+    "tap": "النقر",
+    "upgrades": "الترقيات",
+    "tasks": "المهام",
+    "referrals": "الإحالات",
+    "leaderboard": "الصدارة",
+    "wallet": "المحفظة"
+  },
+  "tap": {
+    "tapNow": "اضغط الآن",
+    "gain": "ربحت +{{value}}",
+    "energyLow": "الطاقة منخفضة"
+  },
+  "upgrades": {
+    "title": "بطاقات الترقية",
+    "level": "المستوى",
+    "cost": "التكلفة",
+    "buy": "شراء",
+    "max": "الحد الأقصى",
+    "boostTap": "قوة النقر",
+    "boostPph": "ربح/ساعة",
+    "boostEnergy": "سعة الطاقة"
+  },
+  "tasks": {
+    "title": "المهام اليومية والاجتماعية",
+    "claim": "تحصيل",
+    "claimed": "تم التحصيل",
+    "cipherPlaceholder": "أدخل الشفرة اليومية",
+    "dailyCipherHint": "صيغة الشفرة: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "نظام الإحالات",
+    "code": "كود الدعوة",
+    "level1": "مستوى 1",
+    "level2": "مستوى 2",
+    "estimatedRewards": "المكافآت التقديرية"
+  },
+  "leaderboard": {
+    "title": "لوحة الصدارة",
+    "global": "عالمي",
+    "weekly": "أسبوعي",
+    "friends": "الأصدقاء",
+    "rank": "الترتيب",
+    "player": "اللاعب"
+  },
+  "wallet": {
+    "title": "ربط محفظة TON",
+    "connect": "ربط المحفظة",
+    "claim": "Claim Airdrop",
+    "placeholder": "عنوان محفظة TON",
+    "estimated": "الكمية المتوقعة"
+  },
+  "events": {
+    "activeBooster": "المضاعف النشط"
+  },
+  "common": {
+    "loading": "جاري التحميل...",
+    "error": "حدث خطأ",
+    "retry": "إعادة المحاولة",
+    "connected": "متصل",
+    "language": "اللغة"
+  }
+}

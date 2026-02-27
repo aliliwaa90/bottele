@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum TaskType {
+  DAILY
+  SOCIAL
+  CIPHER
+  SPECIAL
+}
+
+model User {
+  id               String           @id @default(cuid())
+  telegramId       BigInt           @unique
+  username         String?
+  firstName        String?
+  lastName         String?
+  language         String           @default("ar")
+  role             UserRole         @default(USER)
+  points           BigInt           @default(0)
+  energy           Int              @default(1000)
+  maxEnergy        Int              @default(1000)
+  tapPower         Int              @default(1)
+  comboCount       Int              @default(0)
+  comboMultiplier  Float            @default(1)
+  pph              Int              @default(0)
+  totalTaps        BigInt           @default(0)
+  walletAddress    String?
+  referralCode     String           @unique
+  referredById     String?
+  lastTapAt        DateTime?
+  lastEnergyRefill DateTime         @default(now())
+  lastProfitAt     DateTime         @default(now())
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  referredBy       User?            @relation("ReferralTree", fields: [referredById], references: [id])
+  referrals        User[]           @relation("ReferralTree")
+  tasks            UserTask[]
+  upgrades         UserUpgrade[]
+  tapEvents        TapEvent[]
+  snapshots        AirdropSnapshot[]
+
+  @@index([points(sort: Desc)])
+}
+
+model Upgrade {
+  id            String        @id @default(cuid())
+  key           String        @unique
+  titleAr       String
+  titleEn       String
+  descriptionAr String
+  descriptionEn String
+  baseCost      Int
+  maxLevel      Int           @default(20)
+  pphBoost      Int           @default(0)
+  tapBoost      Int           @default(0)
+  energyBoost   Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  userUpgrades  UserUpgrade[]
+}
+
+model UserUpgrade {
+  id        String   @id @default(cuid())
+  userId    String
+  upgradeId String
+  level     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  upgrade   Upgrade  @relation(fields: [upgradeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, upgradeId])
+}
+
+model Task {
+  id         String     @id @default(cuid())
+  key        String     @unique
+  titleAr    String
+  titleEn    String
+  type       TaskType
+  reward     Int
+  link       String?
+  isDaily    Boolean    @default(false)
+  isActive   Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  userTasks  UserTask[]
+}
+
+model UserTask {
+  id          String   @id @default(cuid())
+  userId      String
+  taskId      String
+  claimDate   DateTime @default(now())
+  rewardTaken Int
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, claimDate])
+}
+
+model TapEvent {
+  id              String   @id @default(cuid())
+  userId          String
+  taps            Int
+  pointsEarned    Int
+  comboMultiplier Float
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model SpecialEvent {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  nameAr    String
+  nameEn    String
+  multiplier Float
+  startsAt  DateTime
+  endsAt    DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AirdropSnapshot {
+  id          String   @id @default(cuid())
+  userId      String
+  points      BigInt
+  tokenAmount Decimal  @db.Decimal(20, 4)
+  batchTag    String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([batchTag])
+}

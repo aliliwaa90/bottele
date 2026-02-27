@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "Akilli ve hizli Tap-to-Earn platformu"
+  },
+  "stats": {
+    "points": "Puan",
+    "energy": "Enerji",
+    "combo": "Kombo",
+    "pph": "Saatlik Kazanc"
+  },
+  "tabs": {
+    "tap": "Tap",
+    "upgrades": "Yukseltmeler",
+    "tasks": "Gorevler",
+    "referrals": "Davet",
+    "leaderboard": "Liderlik",
+    "wallet": "Cuzdan"
+  },
+  "tap": {
+    "tapNow": "Simdi Dokun",
+    "gain": "+{{value}} kazandin",
+    "energyLow": "Enerji dusuk"
+  },
+  "upgrades": {
+    "title": "Yukseltme Kartlari",
+    "level": "Seviye",
+    "cost": "Maliyet",
+    "buy": "Satin Al",
+    "max": "Maksimum",
+    "boostTap": "Tap Gucu",
+    "boostPph": "Saatlik Kazanc",
+    "boostEnergy": "Enerji Kapasitesi"
+  },
+  "tasks": {
+    "title": "Gunluk ve Sosyal Gorevler",
+    "claim": "Al",
+    "claimed": "Alindi",
+    "cipherPlaceholder": "Gunluk sifreyi girin",
+    "dailyCipherHint": "Sifre formati: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "Davet Sistemi",
+    "code": "Davet Kodu",
+    "level1": "Seviye 1",
+    "level2": "Seviye 2",
+    "estimatedRewards": "Tahmini Odul"
+  },
+  "leaderboard": {
+    "title": "Skor Tablosu",
+    "global": "Global",
+    "weekly": "Haftalik",
+    "friends": "Arkadaslar",
+    "rank": "Sira",
+    "player": "Oyuncu"
+  },
+  "wallet": {
+    "title": "TON Cuzdani Bagla",
+    "connect": "Cuzdani Bagla",
+    "claim": "Claim Airdrop",
+    "placeholder": "TON cuzdan adresi",
+    "estimated": "Tahmini miktar"
+  },
+  "events": {
+    "activeBooster": "Aktif Booster"
+  },
+  "common": {
+    "loading": "Yukleniyor...",
+    "error": "Bir hata olustu",
+    "retry": "Tekrar dene",
+    "connected": "Baglandi",
+    "language": "Dil"
+  }
+}

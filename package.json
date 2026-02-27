@@ -1,0 +1,41 @@
+{
+  "name": "vaulttap-monorepo",
+  "version": "1.0.0",
+  "private": true,
+
+  
+  "packageManager": "npm@10.9.4",
+
+
+  "description": "VaultTap - Telegram Tap-to-Earn platform monorepo",
+  "workspaces": [
+    "mini-app",
+    "backend",
+    "bot",
+    "admin",
+    "contracts"
+  ],
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "turbo run format",
+    "db:generate": "npm run prisma:generate --workspace @vaulttap/backend",
+    "db:migrate": "npm run prisma:migrate:dev --workspace @vaulttap/backend",
+    "db:seed": "npm run prisma:seed --workspace @vaulttap/backend",
+    "dev:mini-app": "npm run dev --workspace @vaulttap/mini-app",
+    "dev:backend": "npm run dev --workspace @vaulttap/backend",
+    "dev:bot": "npm run dev --workspace @vaulttap/bot",
+    "dev:admin": "npm run dev --workspace @vaulttap/admin"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "turbo": "^2.4.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.11.1",
+    "npm": ">=10.0.0"
+  }
+}

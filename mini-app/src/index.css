@@ -1,0 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 46% 9%;
+    --foreground: 45 100% 95%;
+    --card: 223 36% 14%;
+    --card-foreground: 45 100% 95%;
+    --primary: 43 96% 56%;
+    --primary-foreground: 222 45% 9%;
+    --secondary: 216 28% 20%;
+    --secondary-foreground: 44 100% 95%;
+    --muted: 218 20% 23%;
+    --muted-foreground: 43 30% 70%;
+    --accent: 14 86% 57%;
+    --accent-foreground: 39 100% 97%;
+    --border: 216 25% 29%;
+    --ring: 43 96% 56%;
+    --radius: 1rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Cairo", sans-serif;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(255, 171, 16, 0.22), transparent 40%),
+      radial-gradient(circle at 80% 0%, rgba(249, 91, 69, 0.2), transparent 45%),
+      linear-gradient(140deg, rgba(8, 18, 41, 0.95), rgba(23, 13, 39, 0.9));
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "يک پلتفرم Tap-to-Earn سريع و هوشمند"
+  },
+  "stats": {
+    "points": "امتياز",
+    "energy": "انرژي",
+    "combo": "کمبو",
+    "pph": "سود/ساعت"
+  },
+  "tabs": {
+    "tap": "تپ",
+    "upgrades": "ارتقاها",
+    "tasks": "ماموريت‌ها",
+    "referrals": "دعوت‌ها",
+    "leaderboard": "رتبه‌بندي",
+    "wallet": "کيف پول"
+  },
+  "tap": {
+    "tapNow": "همين حالا تپ کن",
+    "gain": "+{{value}} گرفتي",
+    "energyLow": "انرژي کم است"
+  },
+  "upgrades": {
+    "title": "کارت‌هاي ارتقا",
+    "level": "سطح",
+    "cost": "هزينه",
+    "buy": "خريد",
+    "max": "حداکثر",
+    "boostTap": "قدرت تپ",
+    "boostPph": "سود/ساعت",
+    "boostEnergy": "ظرفيت انرژي"
+  },
+  "tasks": {
+    "title": "ماموريت‌هاي روزانه و اجتماعي",
+    "claim": "دريافت",
+    "claimed": "دريافت شد",
+    "cipherPlaceholder": "کد روزانه را وارد کنيد",
+    "dailyCipherHint": "فرمت کد: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "سيستم دعوت",
+    "code": "کد دعوت",
+    "level1": "سطح 1",
+    "level2": "سطح 2",
+    "estimatedRewards": "پاداش تخميني"
+  },
+  "leaderboard": {
+    "title": "جدول رتبه‌بندي",
+    "global": "جهاني",
+    "weekly": "هفتگي",
+    "friends": "دوستان",
+    "rank": "رتبه",
+    "player": "بازيکن"
+  },
+  "wallet": {
+    "title": "اتصال کيف پول TON",
+    "connect": "اتصال کيف پول",
+    "claim": "Claim Airdrop",
+    "placeholder": "آدرس کيف پول TON",
+    "estimated": "مقدار تخميني"
+  },
+  "events": {
+    "activeBooster": "بوستر فعال"
+  },
+  "common": {
+    "loading": "در حال بارگذاري...",
+    "error": "خطايي رخ داد",
+    "retry": "تلاش مجدد",
+    "connected": "متصل",
+    "language": "زبان"
+  }
+}

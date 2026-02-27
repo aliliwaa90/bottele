@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "A smart and fast Tap-to-Earn platform"
+  },
+  "stats": {
+    "points": "Points",
+    "energy": "Energy",
+    "combo": "Combo",
+    "pph": "Profit/Hour"
+  },
+  "tabs": {
+    "tap": "Tap",
+    "upgrades": "Upgrades",
+    "tasks": "Tasks",
+    "referrals": "Referrals",
+    "leaderboard": "Leaderboard",
+    "wallet": "Wallet"
+  },
+  "tap": {
+    "tapNow": "Tap Now",
+    "gain": "You earned +{{value}}",
+    "energyLow": "Low energy"
+  },
+  "upgrades": {
+    "title": "Upgrade Cards",
+    "level": "Level",
+    "cost": "Cost",
+    "buy": "Buy",
+    "max": "Maxed",
+    "boostTap": "Tap Power",
+    "boostPph": "Profit/Hour",
+    "boostEnergy": "Energy Capacity"
+  },
+  "tasks": {
+    "title": "Daily and Social Tasks",
+    "claim": "Claim",
+    "claimed": "Claimed",
+    "cipherPlaceholder": "Enter daily cipher",
+    "dailyCipherHint": "Cipher format: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "Referral System",
+    "code": "Referral Code",
+    "level1": "Level 1",
+    "level2": "Level 2",
+    "estimatedRewards": "Estimated Rewards"
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "global": "Global",
+    "weekly": "Weekly",
+    "friends": "Friends",
+    "rank": "Rank",
+    "player": "Player"
+  },
+  "wallet": {
+    "title": "Connect TON Wallet",
+    "connect": "Connect Wallet",
+    "claim": "Claim Airdrop",
+    "placeholder": "TON wallet address",
+    "estimated": "Estimated amount"
+  },
+  "events": {
+    "activeBooster": "Active Booster"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "connected": "Connected",
+    "language": "Language"
+  }
+}

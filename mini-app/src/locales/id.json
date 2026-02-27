@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "Platform Tap-to-Earn yang cerdas dan cepat"
+  },
+  "stats": {
+    "points": "Poin",
+    "energy": "Energi",
+    "combo": "Combo",
+    "pph": "Profit/Jam"
+  },
+  "tabs": {
+    "tap": "Tap",
+    "upgrades": "Upgrade",
+    "tasks": "Tugas",
+    "referrals": "Referral",
+    "leaderboard": "Peringkat",
+    "wallet": "Wallet"
+  },
+  "tap": {
+    "tapNow": "Tap Sekarang",
+    "gain": "Kamu dapat +{{value}}",
+    "energyLow": "Energi rendah"
+  },
+  "upgrades": {
+    "title": "Kartu Upgrade",
+    "level": "Level",
+    "cost": "Biaya",
+    "buy": "Beli",
+    "max": "Maksimal",
+    "boostTap": "Daya Tap",
+    "boostPph": "Profit/Jam",
+    "boostEnergy": "Kapasitas Energi"
+  },
+  "tasks": {
+    "title": "Tugas harian dan sosial",
+    "claim": "Klaim",
+    "claimed": "Sudah diklaim",
+    "cipherPlaceholder": "Masukkan cipher harian",
+    "dailyCipherHint": "Format cipher: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "Sistem Referral",
+    "code": "Kode Referral",
+    "level1": "Level 1",
+    "level2": "Level 2",
+    "estimatedRewards": "Estimasi Reward"
+  },
+  "leaderboard": {
+    "title": "Leaderboard",
+    "global": "Global",
+    "weekly": "Mingguan",
+    "friends": "Teman",
+    "rank": "Peringkat",
+    "player": "Pemain"
+  },
+  "wallet": {
+    "title": "Hubungkan TON Wallet",
+    "connect": "Hubungkan Wallet",
+    "claim": "Claim Airdrop",
+    "placeholder": "Alamat TON wallet",
+    "estimated": "Estimasi jumlah"
+  },
+  "events": {
+    "activeBooster": "Booster Aktif"
+  },
+  "common": {
+    "loading": "Memuat...",
+    "error": "Terjadi kesalahan",
+    "retry": "Coba lagi",
+    "connected": "Terhubung",
+    "language": "Bahasa"
+  }
+}

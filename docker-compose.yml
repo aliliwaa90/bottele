@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vaulttap-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vaulttap
+      POSTGRES_USER: vaulttap
+      POSTGRES_PASSWORD: vaulttap
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaulttap -d vaulttap"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: node:22-alpine
+    container_name: vaulttap-backend
+    working_dir: /app
+    command: sh -c "npm ci && npm run prisma:migrate:deploy --workspace @vaulttap/backend && npm run prisma:seed --workspace @vaulttap/backend && npm run dev --workspace @vaulttap/backend"
+    volumes:
+      - ./:/app
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://vaulttap:vaulttap@postgres:5432/vaulttap?schema=public
+      BACKEND_PORT: 4000
+      JWT_SECRET: replace_with_strong_secret
+      CORS_ORIGIN: http://localhost:5173,http://localhost:3000
+      SOCKET_CORS_ORIGIN: http://localhost:5173,http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bot:
+    image: node:22-alpine
+    container_name: vaulttap-bot
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev --workspace @vaulttap/bot"
+    volumes:
+      - ./:/app
+    environment:
+      NODE_ENV: development
+      BACKEND_URL: http://backend:4000
+      TELEGRAM_BOT_TOKEN: replace_with_bot_father_token
+      TELEGRAM_WEBAPP_URL: http://localhost:5173
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

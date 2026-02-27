@@ -1,0 +1,74 @@
+{
+  "app": {
+    "title": "VaultTap",
+    "subtitle": "Умная и быстрая Tap-to-Earn платформа"
+  },
+  "stats": {
+    "points": "Очки",
+    "energy": "Энергия",
+    "combo": "Комбо",
+    "pph": "Доход/час"
+  },
+  "tabs": {
+    "tap": "Тап",
+    "upgrades": "Улучшения",
+    "tasks": "Задания",
+    "referrals": "Рефералы",
+    "leaderboard": "Рейтинг",
+    "wallet": "Кошелек"
+  },
+  "tap": {
+    "tapNow": "Жми",
+    "gain": "Вы получили +{{value}}",
+    "energyLow": "Мало энергии"
+  },
+  "upgrades": {
+    "title": "Карточки улучшений",
+    "level": "Уровень",
+    "cost": "Цена",
+    "buy": "Купить",
+    "max": "Максимум",
+    "boostTap": "Сила тапа",
+    "boostPph": "Доход/час",
+    "boostEnergy": "Емкость энергии"
+  },
+  "tasks": {
+    "title": "Ежедневные и социальные задания",
+    "claim": "Забрать",
+    "claimed": "Получено",
+    "cipherPlaceholder": "Введите ежедневный шифр",
+    "dailyCipherHint": "Формат шифра: VT-DDMM-CIPHER"
+  },
+  "referrals": {
+    "title": "Реферальная система",
+    "code": "Код приглашения",
+    "level1": "Уровень 1",
+    "level2": "Уровень 2",
+    "estimatedRewards": "Примерная награда"
+  },
+  "leaderboard": {
+    "title": "Таблица лидеров",
+    "global": "Глобально",
+    "weekly": "За неделю",
+    "friends": "Друзья",
+    "rank": "Ранг",
+    "player": "Игрок"
+  },
+  "wallet": {
+    "title": "Подключить TON кошелек",
+    "connect": "Подключить",
+    "claim": "Claim Airdrop",
+    "placeholder": "Адрес TON кошелька",
+    "estimated": "Ожидаемая сумма"
+  },
+  "events": {
+    "activeBooster": "Активный бустер"
+  },
+  "common": {
+    "loading": "Загрузка...",
+    "error": "Произошла ошибка",
+    "retry": "Повторить",
+    "connected": "Подключено",
+    "language": "Язык"
+  }
+}

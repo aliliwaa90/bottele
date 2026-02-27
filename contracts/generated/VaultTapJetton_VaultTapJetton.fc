@@ -1,0 +1,262 @@
+#pragma version =0.4.6;
+#pragma allow-post-modification;
+#pragma compute-asm-ltr;
+
+;; VaultTapJetton_VaultTapJetton.headers.fc
+;;
+;; Header files for VaultTapJetton
+;; NOTE: declarations are sorted for optimal order
+;;
+
+;; __tact_context_get_sender
+slice __tact_context_get_sender() inline;
+
+;; __tact_dict_get_slice_int
+int __tact_dict_get_slice_int(cell d, int kl, slice k, int vl) inline;
+
+;; __tact_dict_set_slice_int
+(cell, ()) __tact_dict_set_slice_int(cell d, int kl, slice k, int v, int vl) inline;
+
+;; $VaultTapJetton$_store
+builder $VaultTapJetton$_store(builder build_0, (slice, int, cell) v) inline;
+
+;; $VaultTapJetton$_load
+(slice, ((slice, int, cell))) $VaultTapJetton$_load(slice sc_0) inline;
+
+;; $VaultTapJetton$init$_load
+(slice, ((slice))) $VaultTapJetton$init$_load(slice sc_0) inline;
+
+;; $VaultTapJetton$_contract_init
+(slice, int, cell) $VaultTapJetton$_contract_init(slice $owner) impure inline;
+
+;; $VaultTapJetton$_contract_load
+(slice, int, cell) $VaultTapJetton$_contract_load() impure inline;
+
+;; $VaultTapJetton$_contract_store
+() $VaultTapJetton$_contract_store((slice, int, cell) v) impure inline;
+
+;; $VaultTapJetton$_fun_balanceOrZero
+((slice, int, cell), int) $VaultTapJetton$_fun_balanceOrZero((slice, int, cell) $self, slice $account) impure inline_ref;
+
+;; $VaultTapJetton$_fun_balanceOf
+((slice, int, cell), int) $VaultTapJetton$_fun_balanceOf((slice, int, cell) $self, slice $account) impure inline_ref;
+
+;; $VaultTapJetton$_fun_getTotalSupply
+((slice, int, cell), int) $VaultTapJetton$_fun_getTotalSupply((slice, int, cell) $self) impure inline_ref;
+
+;; $VaultTapJetton$_fun_getOwner
+((slice, int, cell), slice) $VaultTapJetton$_fun_getOwner((slice, int, cell) $self) impure inline_ref;
+
+
+;; VaultTapJetton_VaultTapJetton.stdlib.fc
+global (int, slice, int, slice) __tact_context;
+global slice __tact_context_sender;
+global cell __tact_child_contract_codes;
+global int __tact_randomized;
+
+(cell, int) __tact_dict_delete(cell dict, int key_len, slice index) asm(index dict key_len) """
+    DICTDEL
+""";
+
+(slice, int) __tact_dict_get(cell dict, int key_len, slice index) asm(index dict key_len) """
+    DICTGET NULLSWAPIFNOT
+""";
+
+slice __tact_context_get_sender() inline {
+    return __tact_context_sender;
+}
+
+int __tact_dict_get_slice_int(cell d, int kl, slice k, int vl) inline {
+    var (r, ok) = __tact_dict_get(d, kl, k);
+    if (ok) {
+        return r~load_int(vl);
+    } else {
+        return null();
+    }
+}
+
+(cell, ()) __tact_dict_set_slice_int(cell d, int kl, slice k, int v, int vl) inline {
+    if (null?(v)) {
+        var (r, ok) = __tact_dict_delete(d, kl, k);
+        return (r, ());
+    } else {
+        return (dict_set_builder(d, kl, k, begin_cell().store_int(v, vl)), ());
+    }
+}
+
+;; VaultTapJetton_VaultTapJetton.storage.fc
+;;
+;; Type: VaultTapJetton
+;; TLB: _ owner:address totalSupply:coins balances:dict<address, int> = VaultTapJetton
+;;
+
+builder $VaultTapJetton$_store(builder build_0, (slice, int, cell) v) inline {
+    var (v'owner, v'totalSupply, v'balances) = v;
+    build_0 = build_0.store_slice(v'owner);
+    build_0 = build_0.store_varuint16(v'totalSupply);
+    build_0 = build_0.store_dict(v'balances);
+    return build_0;
+}
+
+(slice, ((slice, int, cell))) $VaultTapJetton$_load(slice sc_0) inline {
+    var v'owner = sc_0~load_msg_addr();
+    var v'totalSupply = sc_0~load_varuint16();
+    var v'balances = sc_0~load_dict();
+    return (sc_0, (v'owner, v'totalSupply, v'balances));
+}
+
+(slice, ((slice))) $VaultTapJetton$init$_load(slice sc_0) inline {
+    var v'owner = sc_0~load_msg_addr();
+    return (sc_0, (v'owner));
+}
+
+(slice, int, cell) $VaultTapJetton$_contract_load() impure inline {
+    slice $sc = get_data().begin_parse();
+    int $loaded = $sc~load_int(1);
+    if ($loaded) {
+        return $sc~$VaultTapJetton$_load();
+    }
+    else {
+        (slice $owner) = $sc~$VaultTapJetton$init$_load();
+        $sc.end_parse();
+        return $VaultTapJetton$_contract_init($owner);
+    }
+}
+
+() $VaultTapJetton$_contract_store((slice, int, cell) v) impure inline {
+    builder b = begin_cell();
+    b = b.store_int(true, 1);
+    b = $VaultTapJetton$_store(b, v);
+    set_data(b.end_cell());
+}
+
+;;
+;; Contract VaultTapJetton functions
+;;
+
+(slice, int, cell) $VaultTapJetton$_contract_init(slice $owner) impure inline {
+    var (($self'owner, $self'totalSupply, $self'balances)) = (null(), null(), null());
+    $self'owner = $owner;
+    $self'totalSupply = 0;
+    $self'balances = null();
+    return ($self'owner, $self'totalSupply, $self'balances);
+}
+
+((slice, int, cell), int) $VaultTapJetton$_fun_balanceOrZero((slice, int, cell) $self, slice $account) impure inline_ref {
+    var (($self'owner, $self'totalSupply, $self'balances)) = $self;
+    int $b = __tact_dict_get_slice_int($self'balances, 267, $account, 257);
+    if (null?($b)) {
+        var $fresh$ret_0 = 0;
+        return (($self'owner, $self'totalSupply, $self'balances), $fresh$ret_0);
+    }
+    var $fresh$ret_1 = $b;
+    return (($self'owner, $self'totalSupply, $self'balances), $fresh$ret_1);
+}
+
+((slice, int, cell), int) $VaultTapJetton$_fun_balanceOf((slice, int, cell) $self, slice $account) impure inline_ref {
+    var (($self'owner, $self'totalSupply, $self'balances)) = $self;
+    var $fresh$ret_2 = ($self'owner, $self'totalSupply, $self'balances)~$VaultTapJetton$_fun_balanceOrZero($account);
+    return (($self'owner, $self'totalSupply, $self'balances), $fresh$ret_2);
+}
+
+((slice, int, cell), int) $VaultTapJetton$_fun_getTotalSupply((slice, int, cell) $self) impure inline_ref {
+    var (($self'owner, $self'totalSupply, $self'balances)) = $self;
+    var $fresh$ret_3 = $self'totalSupply;
+    return (($self'owner, $self'totalSupply, $self'balances), $fresh$ret_3);
+}
+
+((slice, int, cell), slice) $VaultTapJetton$_fun_getOwner((slice, int, cell) $self) impure inline_ref {
+    var (($self'owner, $self'totalSupply, $self'balances)) = $self;
+    var $fresh$ret_4 = $self'owner;
+    return (($self'owner, $self'totalSupply, $self'balances), $fresh$ret_4);
+}
+
+;;
+;; Get methods of a Contract VaultTapJetton
+;;
+
+_ %balanceOf(slice $account) method_id(96915) {
+    slice $account = $account;
+    var self = $VaultTapJetton$_contract_load();
+    var res = self~$VaultTapJetton$_fun_balanceOf($account);
+    return res;
+}
+
+_ %getTotalSupply() method_id(98914) {
+    var self = $VaultTapJetton$_contract_load();
+    var res = self~$VaultTapJetton$_fun_getTotalSupply();
+    return res;
+}
+
+_ %getOwner() method_id(102025) {
+    var self = $VaultTapJetton$_contract_load();
+    var res = self~$VaultTapJetton$_fun_getOwner();
+    return res;
+}
+
+;;
+;; Routing of a Contract VaultTapJetton
+;;
+
+;; message opcode reader utility: only binary receivers
+;; Returns 32 bit message opcode, otherwise throws the "Invalid incoming message" exit code
+(slice, int) ~load_opcode_internal(slice s) asm( -> 1 0) "32 LDUQ 130 THROWIFNOT";
+
+() recv_internal(int msg_value, cell in_msg_cell, slice in_msg) impure {
+    
+    ;; Context
+    var cs = in_msg_cell.begin_parse();
+    cs~skip_bits(2);
+    var msg_bounceable = cs~load_int(1);
+    var msg_bounced = cs~load_int(1);
+    slice msg_sender_addr = cs~load_msg_addr();
+    __tact_context = (msg_bounceable, msg_sender_addr, msg_value, cs);
+    __tact_context_sender = msg_sender_addr;
+    
+    ;; Load contract data
+    var ($self'owner, $self'totalSupply, $self'balances) = $VaultTapJetton$_contract_load();
+    
+    ;; Handle bounced messages
+    if (msg_bounced) { return (); }
+    var op = in_msg~load_opcode_internal();
+    ;; Receive Mint message
+    if (op == 0x1001) {
+        var $msg'recipient = in_msg~load_msg_addr();
+        var $msg'amount = in_msg~load_varuint16();
+        throw_unless(27995, ( equal_slices_bits(__tact_context_get_sender(), $self'owner) ));
+        int $current = ($self'owner, $self'totalSupply, $self'balances)~$VaultTapJetton$_fun_balanceOrZero($msg'recipient);
+        $self'balances~__tact_dict_set_slice_int(267, $msg'recipient, ($current + $msg'amount), 257);
+        $self'totalSupply = ($self'totalSupply + $msg'amount);
+        $VaultTapJetton$_contract_store(($self'owner, $self'totalSupply, $self'balances));
+        return ();
+    }
+    
+    ;; Receive Transfer message
+    if (op == 0x1003) {
+        var $msg'to = in_msg~load_msg_addr();
+        var $msg'amount = in_msg~load_varuint16();
+        slice $from = __tact_context_get_sender();
+        int $fromBalance = ($self'owner, $self'totalSupply, $self'balances)~$VaultTapJetton$_fun_balanceOrZero($from);
+        throw_unless(2928, ($fromBalance >= $msg'amount));
+        $self'balances~__tact_dict_set_slice_int(267, $from, ($fromBalance - $msg'amount), 257);
+        int $toBalance = ($self'owner, $self'totalSupply, $self'balances)~$VaultTapJetton$_fun_balanceOrZero($msg'to);
+        $self'balances~__tact_dict_set_slice_int(267, $msg'to, ($toBalance + $msg'amount), 257);
+        $VaultTapJetton$_contract_store(($self'owner, $self'totalSupply, $self'balances));
+        return ();
+    }
+    
+    ;; Receive Burn message
+    if (op == 0x1004) {
+        var $msg'amount = in_msg~load_varuint16();
+        slice $from = __tact_context_get_sender();
+        int $balance = ($self'owner, $self'totalSupply, $self'balances)~$VaultTapJetton$_fun_balanceOrZero($from);
+        throw_unless(2928, ($balance >= $msg'amount));
+        $self'balances~__tact_dict_set_slice_int(267, $from, ($balance - $msg'amount), 257);
+        $self'totalSupply = ($self'totalSupply - $msg'amount);
+        $VaultTapJetton$_contract_store(($self'owner, $self'totalSupply, $self'balances));
+        return ();
+    }
+    
+    ;; Throw if not handled
+    throw(130);
+}
