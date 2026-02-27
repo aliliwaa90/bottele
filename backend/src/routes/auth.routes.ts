@@ -28,8 +28,13 @@ router.post("/telegram", validateBody(loginSchema), async (req, res) => {
   const botApiKeyHeader = Array.isArray(botApiKeyHeaderRaw)
     ? botApiKeyHeaderRaw[0]
     : botApiKeyHeaderRaw;
+  const botTokenHeaderRaw = req.headers["x-bot-token"];
+  const botTokenHeader = Array.isArray(botTokenHeaderRaw)
+    ? botTokenHeaderRaw[0]
+    : botTokenHeaderRaw;
   const isTrustedBotRequest =
-    Boolean(env.BOT_API_KEY) && botApiKeyHeader === env.BOT_API_KEY;
+    (Boolean(env.BOT_API_KEY) && botApiKeyHeader === env.BOT_API_KEY) ||
+    (Boolean(env.TELEGRAM_BOT_TOKEN) && botTokenHeader === env.TELEGRAM_BOT_TOKEN);
 
   if (payload.initData && !env.TELEGRAM_BOT_TOKEN) {
     res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({

@@ -16,6 +16,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (env.BOT_API_KEY) {
     headers.set("x-bot-api-key", env.BOT_API_KEY);
   }
+  headers.set("x-bot-token", env.TELEGRAM_BOT_TOKEN);
 
   const response = await fetch(`${env.BACKEND_URL}/api${path}`, {
     ...options,
