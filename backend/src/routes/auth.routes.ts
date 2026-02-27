@@ -24,6 +24,12 @@ const loginSchema = z.object({
 
 router.post("/telegram", validateBody(loginSchema), async (req, res) => {
   const payload = req.body as z.infer<typeof loginSchema>;
+  const botApiKeyHeaderRaw = req.headers["x-bot-api-key"];
+  const botApiKeyHeader = Array.isArray(botApiKeyHeaderRaw)
+    ? botApiKeyHeaderRaw[0]
+    : botApiKeyHeaderRaw;
+  const isTrustedBotRequest =
+    Boolean(env.BOT_API_KEY) && botApiKeyHeader === env.BOT_API_KEY;
 
   if (payload.initData && !env.TELEGRAM_BOT_TOKEN) {
     res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
@@ -47,7 +53,7 @@ router.post("/telegram", validateBody(loginSchema), async (req, res) => {
     return;
   }
 
-  if (env.TELEGRAM_LOGIN_REQUIRED && !verifiedInitData) {
+  if (env.TELEGRAM_LOGIN_REQUIRED && !verifiedInitData && !isTrustedBotRequest) {
     res.status(StatusCodes.UNAUTHORIZED).json({
       message: "Telegram initData is required for login."
     });
