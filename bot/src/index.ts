@@ -376,7 +376,7 @@ bot.catch((error) => {
   console.error("Bot error:", error.error);
 });
 
-await bot.api.setMyCommands([
+const BOT_COMMANDS = [
   { command: "start", description: "تشغيل البوت" },
   { command: "menu", description: "فتح القائمة الرئيسية" },
   { command: "help", description: "عرض جميع الأوامر" },
@@ -385,10 +385,51 @@ await bot.api.setMyCommands([
   { command: "tasks", description: "عرض المهام وتحصيلها" },
   { command: "ref", description: "عرض أداء الإحالات" },
   { command: "lang", description: "تغيير اللغة" }
-]);
+];
 
-bot.start({
-  onStart(botInfo) {
-    console.log(`VaultTap bot started as @${botInfo.username}`);
+const BOT_START_RETRY_MS = Number(process.env.BOT_START_RETRY_MS ?? 10000);
+
+function startupErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
   }
-});
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown startup error";
+  }
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startBotWithRetry(): Promise<void> {
+  while (true) {
+    try {
+      await bot.api.setMyCommands(BOT_COMMANDS);
+      await bot.start({
+        onStart(botInfo) {
+          console.log(`VaultTap bot started as @${botInfo.username}`);
+        }
+      });
+      return;
+    } catch (error) {
+      const message = startupErrorMessage(error);
+      console.error(`Bot startup failed: ${message}`);
+
+      const normalized = message.toLowerCase();
+      if (normalized.includes("unauthorized") || normalized.includes("token")) {
+        console.error("Check TELEGRAM_BOT_TOKEN in Railway variables and redeploy this service.");
+      }
+
+      console.error(`Retrying bot startup in ${BOT_START_RETRY_MS}ms ...`);
+      await delay(BOT_START_RETRY_MS);
+    }
+  }
+}
+
+void startBotWithRetry();
