@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  Bot,
+  Clock3,
+  Coins,
   Crown,
   Flame,
-  Gift,
   Globe,
   ShieldCheck,
   Sparkles,
+  Star,
   Target,
   Trophy,
   Users,
@@ -74,6 +77,23 @@ function rankMark(rank: number) {
   if (rank === 2) return "🥈";
   if (rank === 3) return "🥉";
   return String(rank);
+}
+
+function categoryStyle(category: string): string {
+  switch (category) {
+    case "tap":
+      return "from-orange-500/25 via-amber-500/15 to-transparent";
+    case "pph":
+      return "from-cyan-500/25 via-blue-500/15 to-transparent";
+    case "energy":
+      return "from-emerald-500/25 via-green-500/15 to-transparent";
+    case "autotap":
+      return "from-violet-500/25 via-fuchsia-500/15 to-transparent";
+    case "legendary":
+      return "from-yellow-400/30 via-orange-500/20 to-transparent";
+    default:
+      return "from-slate-500/20 via-slate-500/10 to-transparent";
+  }
 }
 
 export default function App() {
@@ -424,6 +444,14 @@ export default function App() {
     }
   };
 
+  const canAfford = (cost: number, points: string): boolean => {
+    try {
+      return BigInt(points) >= BigInt(cost);
+    } catch {
+      return Number(points) >= cost;
+    }
+  };
+
   if (loading) {
     return (
       <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4">
@@ -509,11 +537,16 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <StatCard label={t("stats.points")} value={formatNumber(user.points)} icon={<Sparkles size={14} />} />
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+              <StatCard label={t("stats.points")} value={formatNumber(user.points)} icon={<Coins size={14} />} />
               <StatCard label={t("stats.energy")} value={`${user.energy}/${user.maxEnergy}`} icon={<Zap size={14} />} />
               <StatCard label={t("stats.combo")} value={`${user.comboMultiplier.toFixed(2)}x`} icon={<Flame size={14} />} />
-              <StatCard label={t("stats.pph")} value={formatNumber(user.pph)} icon={<Gift size={14} />} />
+              <StatCard label={t("stats.pph")} value={formatNumber(user.pph)} icon={<Clock3 size={14} />} />
+              <StatCard
+                label={isRtl ? "الأوتو-تاب/ساعة" : "AutoTap/H"}
+                value={formatNumber(user.autoTapPerHour)}
+                icon={<Bot size={14} />}
+              />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -537,12 +570,30 @@ export default function App() {
 
         <Tabs defaultValue="tap">
           <TabsList className="grid grid-cols-3 md:grid-cols-6">
-            <TabsTrigger value="tap">{t("tabs.tap")}</TabsTrigger>
-            <TabsTrigger value="upgrades">{t("tabs.upgrades")}</TabsTrigger>
-            <TabsTrigger value="tasks">{t("tabs.tasks")}</TabsTrigger>
-            <TabsTrigger value="referrals">{t("tabs.referrals")}</TabsTrigger>
-            <TabsTrigger value="leaderboard">{t("tabs.leaderboard")}</TabsTrigger>
-            <TabsTrigger value="wallet">{t("tabs.wallet")}</TabsTrigger>
+            <TabsTrigger value="tap" className="gap-1.5">
+              <Zap size={14} />
+              {t("tabs.tap")}
+            </TabsTrigger>
+            <TabsTrigger value="upgrades" className="gap-1.5">
+              <Sparkles size={14} />
+              {t("tabs.upgrades")}
+            </TabsTrigger>
+            <TabsTrigger value="tasks" className="gap-1.5">
+              <Target size={14} />
+              {t("tabs.tasks")}
+            </TabsTrigger>
+            <TabsTrigger value="referrals" className="gap-1.5">
+              <Users size={14} />
+              {t("tabs.referrals")}
+            </TabsTrigger>
+            <TabsTrigger value="leaderboard" className="gap-1.5">
+              <Trophy size={14} />
+              {t("tabs.leaderboard")}
+            </TabsTrigger>
+            <TabsTrigger value="wallet" className="gap-1.5">
+              <Wallet size={14} />
+              {t("tabs.wallet")}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="tap">
@@ -572,7 +623,10 @@ export default function App() {
                   >
                     <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.72),transparent_38%)]" />
                     <span className="absolute -inset-2 rounded-full border border-amber-200/45 opacity-70 blur-[2px]" />
-                    <span className="relative text-7xl drop-shadow-sm">🪙</span>
+                    <span className="relative flex flex-col items-center justify-center text-slate-900">
+                      <Crown size={22} />
+                      <span className="text-3xl font-black tracking-widest">VT</span>
+                    </span>
                   </motion.button>
                   <div className="text-center">
                     <p className="text-sm font-semibold text-amber-100">
@@ -588,8 +642,8 @@ export default function App() {
                       onClick={handleTurboTap}
                     >
                       {turboCooldownSeconds > 0
-                        ? `⚡ Turbo (${turboCooldownSeconds}s)`
-                        : "⚡ Turbo x10"}
+                        ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
+                        : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
                     </Button>
                     <Button
                       size="sm"
@@ -619,52 +673,77 @@ export default function App() {
           <TabsContent value="upgrades">
             <Card>
               <CardHeader>
-                <CardTitle>{t("upgrades.title")}</CardTitle>
+                <CardTitle>{isRtl ? "سوق الترقيات المتقدم" : "Advanced Upgrades Market"}</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2">
                 {upgrades.map((upgrade) => {
                   const maxed = upgrade.nextCost === null;
                   const cost = upgrade.nextCost ?? 0;
-                  const canBuy = !maxed && Number(user.points) >= cost;
+                  const canBuy = !maxed && canAfford(cost, user.points);
                   const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
                   return (
-                    <div key={upgrade.id} className="rounded-2xl border border-border/70 bg-secondary/20 p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h4 className="font-bold">{i18n.language === "ar" ? upgrade.titleAr : upgrade.titleEn}</h4>
-                          <p className="text-xs text-muted-foreground">
-                            {i18n.language === "ar" ? upgrade.descriptionAr : upgrade.descriptionEn}
-                          </p>
+                    <div
+                      key={upgrade.id}
+                      className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/70 p-4"
+                    >
+                      <div className={cn("pointer-events-none absolute inset-0 bg-gradient-to-br", categoryStyle(upgrade.category))} />
+                      <div className="relative z-10">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2">
+                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-background/70 text-xl">
+                              {upgrade.icon}
+                            </span>
+                            <div>
+                              <h4 className="font-bold">{i18n.language === "ar" ? upgrade.titleAr : upgrade.titleEn}</h4>
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                {upgrade.category}
+                              </p>
+                            </div>
+                          </div>
+                          <Badge variant="secondary">
+                            {t("upgrades.level")} {upgrade.currentLevel}/{upgrade.maxLevel}
+                          </Badge>
                         </div>
-                        <Badge variant="secondary">
-                          {t("upgrades.level")} {upgrade.currentLevel}/{upgrade.maxLevel}
-                        </Badge>
-                      </div>
-                      <Progress value={levelPercent} className="mt-3 h-2" />
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                        {upgrade.tapBoost > 0 ? (
-                          <Badge variant="outline">
-                            +{upgrade.tapBoost} {t("upgrades.boostTap")}
-                          </Badge>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {i18n.language === "ar" ? upgrade.descriptionAr : upgrade.descriptionEn}
+                        </p>
+                        <Progress value={levelPercent} className="mt-3 h-2.5" />
+                        <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
+                          <BoostTag label={isRtl ? "نقر" : "Tap"} value={upgrade.tapBoost} />
+                          <BoostTag label="PPH" value={upgrade.pphBoost} />
+                          <BoostTag label={isRtl ? "طاقة" : "Energy"} value={upgrade.energyBoost} />
+                          <BoostTag label={isRtl ? "أوتو" : "AutoTap"} value={upgrade.autoTapBoost} />
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold">
+                            {maxed ? t("upgrades.max") : `${t("upgrades.cost")}: ${formatNumber(cost)}`}
+                          </span>
+                          <Button size="sm" disabled={!canBuy} onClick={() => void handleBuyUpgrade(upgrade.id)}>
+                            {isRtl ? "ترقية بالنقاط" : "Upgrade with points"}
+                          </Button>
+                        </div>
+                        {upgrade.starsPrice ? (
+                          <div className="mt-2 flex items-center justify-between rounded-lg border border-yellow-300/25 bg-yellow-400/10 px-2 py-1.5 text-xs">
+                            <span className="flex items-center gap-1">
+                              <Star size={12} />
+                              {isRtl ? `شراء بالنجوم: ${upgrade.starsPrice}` : `Stars: ${upgrade.starsPrice}`}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() =>
+                                toast.info(
+                                  isRtl
+                                    ? "للشراء بالنجوم استخدم /stars داخل البوت."
+                                    : "Use /stars in bot to buy with Stars."
+                                )
+                              }
+                            >
+                              {isRtl ? "شراء بالنجوم" : "Buy with Stars"}
+                            </Button>
+                          </div>
                         ) : null}
-                        {upgrade.pphBoost > 0 ? (
-                          <Badge variant="outline">
-                            +{upgrade.pphBoost} {t("upgrades.boostPph")}
-                          </Badge>
-                        ) : null}
-                        {upgrade.energyBoost > 0 ? (
-                          <Badge variant="outline">
-                            +{upgrade.energyBoost} {t("upgrades.boostEnergy")}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold">
-                          {maxed ? t("upgrades.max") : `${t("upgrades.cost")}: ${formatNumber(cost)}`}
-                        </span>
-                        <Button size="sm" disabled={!canBuy} onClick={() => void handleBuyUpgrade(upgrade.id)}>
-                          {t("upgrades.buy")}
-                        </Button>
                       </div>
                     </div>
                   );
@@ -842,7 +921,7 @@ export default function App() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Wallet size={17} />
-                  {t("wallet.title")}
+                  {isRtl ? "المحفظة + متجر النجوم" : "Wallet + Stars Shop"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -858,6 +937,14 @@ export default function App() {
                   </Button>
                   <p className="text-xs text-muted-foreground">
                     {t("wallet.estimated")}: {formatNumber(Number(user.points) / 1000)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-yellow-300/30 bg-yellow-500/10 p-3 text-sm">
+                  <p className="font-semibold">{isRtl ? "الشراء بالنجوم" : "Buy with Stars"}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isRtl
+                      ? "استخدم أمر /stars داخل البوت لشراء ترقيات مدفوعة بالنجوم."
+                      : "Use /stars in bot to buy premium upgrades with Telegram Stars."}
                   </p>
                 </div>
               </CardContent>
@@ -889,3 +976,13 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+function BoostTag({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-secondary/35 px-2 py-1">
+      <span className="text-[11px] text-muted-foreground">{label}</span>{" "}
+      <span className="font-semibold">+{value}</span>
+    </div>
+  );
+}
+

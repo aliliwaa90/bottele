@@ -136,3 +136,44 @@ export async function getReferrals(user: TelegramUserPayload) {
     headers: authHeader(token)
   });
 }
+
+export async function getGameState(user: TelegramUserPayload) {
+  const token = await ensureToken(user);
+  return request<{
+    user: {
+      points: string;
+      energy: number;
+      maxEnergy: number;
+      comboMultiplier: number;
+      pph: number;
+      autoTapPerHour: number;
+      referralCode: string;
+      tapPower: number;
+      totalTaps: string;
+    };
+    upgrades: Array<{
+      id: string;
+      key: string;
+      titleAr: string;
+      titleEn: string;
+      starsPrice?: number | null;
+      currentLevel: number;
+      maxLevel: number;
+    }>;
+  }>("/game/me", {
+    headers: authHeader(token)
+  });
+}
+
+export async function confirmStarsPayment(args: {
+  telegramId: number;
+  telegramPaymentChargeId: string;
+  providerPaymentChargeId?: string;
+  payload: string;
+  totalAmount: number;
+}) {
+  return request<{ message: string; rewardType: string; rewardValue: number }>("/payments/telegram-stars/confirm", {
+    method: "POST",
+    body: JSON.stringify(args)
+  });
+}

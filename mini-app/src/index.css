@@ -44,6 +44,19 @@
     background-attachment: fixed;
   }
 
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.16;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(circle at center, black 18%, transparent 80%);
+  }
+
   ::selection {
     background: rgba(251, 191, 36, 0.35);
     color: #fff;
