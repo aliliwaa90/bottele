@@ -37,7 +37,8 @@ async function syncEconomy(userId: string) {
   const elapsedProfitSeconds = Math.max(0, Math.floor((now.getTime() - user.lastProfitAt.getTime()) / 1000));
 
   const newEnergy = refillEnergy(user.energy, user.maxEnergy, elapsedEnergyMinutes);
-  const passiveGain = Math.floor((user.pph / 3600) * elapsedProfitSeconds);
+  const passiveRatePerHour = user.pph + user.autoTapPerHour;
+  const passiveGain = Math.floor((passiveRatePerHour / 3600) * elapsedProfitSeconds);
 
   if (newEnergy !== user.energy || passiveGain > 0) {
     return prisma.user.update({
@@ -108,7 +109,10 @@ router.get("/me", async (req, res) => {
     return {
       ...serializeUpgrade(upgrade),
       currentLevel: level,
-      nextCost: level < upgrade.maxLevel ? calculateUpgradeCost(upgrade.baseCost, level) : null
+      nextCost:
+        level < upgrade.maxLevel
+          ? calculateUpgradeCost(upgrade.baseCost, level, upgrade.difficulty, upgrade.maxLevel)
+          : null
     };
   });
 
@@ -217,7 +221,12 @@ router.post("/upgrades/:upgradeId/buy", async (req, res) => {
     return;
   }
 
-  const cost = calculateUpgradeCost(upgrade.baseCost, currentLevel);
+  const cost = calculateUpgradeCost(
+    upgrade.baseCost,
+    currentLevel,
+    upgrade.difficulty,
+    upgrade.maxLevel
+  );
   if (user.points < BigInt(cost)) {
     res.status(StatusCodes.BAD_REQUEST).json({ message: "Not enough points." });
     return;
@@ -231,7 +240,8 @@ router.post("/upgrades/:upgradeId/buy", async (req, res) => {
         pph: { increment: upgrade.pphBoost },
         tapPower: { increment: upgrade.tapBoost },
         maxEnergy: { increment: upgrade.energyBoost },
-        energy: { increment: upgrade.energyBoost }
+        energy: { increment: upgrade.energyBoost },
+        autoTapPerHour: { increment: upgrade.autoTapBoost }
       }
     }),
     prisma.userUpgrade.upsert({

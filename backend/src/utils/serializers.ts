@@ -1,6 +1,65 @@
-import type { Task, Upgrade, User } from "@prisma/client";
+type SerializableUser = {
+  id: string;
+  telegramId: bigint;
+  username: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  language: string;
+  role: string;
+  points: bigint;
+  energy: number;
+  maxEnergy: number;
+  tapPower: number;
+  comboCount: number;
+  comboMultiplier: number;
+  pph: number;
+  autoTapPerHour: number;
+  starsSpent: number;
+  totalTaps: bigint;
+  walletAddress: string | null;
+  referralCode: string;
+  referredById: string | null;
+  lastTapAt: Date | null;
+  lastEnergyRefill: Date;
+  lastProfitAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
-export function serializeUser(user: User) {
+type SerializableUpgrade = {
+  id: string;
+  key: string;
+  titleAr: string;
+  titleEn: string;
+  descriptionAr: string;
+  descriptionEn: string;
+  icon: string;
+  imageUrl: string | null;
+  category: string;
+  baseCost: number;
+  maxLevel: number;
+  difficulty: number;
+  unlockLevel: number;
+  starsPrice: number | null;
+  pphBoost: number;
+  tapBoost: number;
+  energyBoost: number;
+  autoTapBoost: number;
+};
+
+type SerializableTask = {
+  id: string;
+  key: string;
+  titleAr: string;
+  titleEn: string;
+  type: string;
+  reward: number;
+  link: string | null;
+  isDaily: boolean;
+  isActive: boolean;
+};
+
+export function serializeUser(user: SerializableUser) {
   return {
     id: user.id,
     telegramId: user.telegramId.toString(),
@@ -16,6 +75,8 @@ export function serializeUser(user: User) {
     comboCount: user.comboCount,
     comboMultiplier: user.comboMultiplier,
     pph: user.pph,
+    autoTapPerHour: user.autoTapPerHour,
+    starsSpent: user.starsSpent,
     totalTaps: user.totalTaps.toString(),
     walletAddress: user.walletAddress,
     referralCode: user.referralCode,
@@ -28,7 +89,7 @@ export function serializeUser(user: User) {
   };
 }
 
-export function serializeUpgrade(upgrade: Upgrade) {
+export function serializeUpgrade(upgrade: SerializableUpgrade) {
   return {
     id: upgrade.id,
     key: upgrade.key,
@@ -36,15 +97,22 @@ export function serializeUpgrade(upgrade: Upgrade) {
     titleEn: upgrade.titleEn,
     descriptionAr: upgrade.descriptionAr,
     descriptionEn: upgrade.descriptionEn,
+    icon: upgrade.icon,
+    imageUrl: upgrade.imageUrl,
+    category: upgrade.category,
     baseCost: upgrade.baseCost,
     maxLevel: upgrade.maxLevel,
+    difficulty: upgrade.difficulty,
+    unlockLevel: upgrade.unlockLevel,
+    starsPrice: upgrade.starsPrice,
     pphBoost: upgrade.pphBoost,
     tapBoost: upgrade.tapBoost,
-    energyBoost: upgrade.energyBoost
+    energyBoost: upgrade.energyBoost,
+    autoTapBoost: upgrade.autoTapBoost
   };
 }
 
-export function serializeTask(task: Task) {
+export function serializeTask(task: SerializableTask) {
   return {
     id: task.id,
     key: task.key,

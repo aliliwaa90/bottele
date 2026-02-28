@@ -2,12 +2,11 @@ import { Router } from "express";
 import ExcelJS from "exceljs";
 import { StatusCodes } from "http-status-codes";
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { getSocket } from "../lib/socket.js";
 import { requireAdmin, requireAuth } from "../middleware/auth.js";
-import { serializeTask, serializeUser } from "../utils/serializers.js";
+import { serializeTask, serializeUpgrade, serializeUser } from "../utils/serializers.js";
 import { validateBody, validateQuery } from "../utils/validate.js";
 
 const router = Router();
@@ -35,6 +34,26 @@ const upsertTaskSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
+const upsertUpgradeSchema = z.object({
+  key: z.string().min(3).max(64),
+  titleAr: z.string().min(2).max(200),
+  titleEn: z.string().min(2).max(200),
+  descriptionAr: z.string().min(2).max(500),
+  descriptionEn: z.string().min(2).max(500),
+  icon: z.string().min(1).max(10).default("⚙️"),
+  imageUrl: z.string().url().optional(),
+  category: z.string().min(2).max(40).default("core"),
+  baseCost: z.coerce.number().int().min(1).max(100000000),
+  maxLevel: z.coerce.number().int().min(1).max(105).default(105),
+  difficulty: z.coerce.number().min(1.01).max(1.5).default(1.08),
+  unlockLevel: z.coerce.number().int().min(1).max(105).default(1),
+  starsPrice: z.coerce.number().int().min(0).max(100000).optional(),
+  pphBoost: z.coerce.number().int().min(0).max(100000).default(0),
+  tapBoost: z.coerce.number().int().min(0).max(100000).default(0),
+  energyBoost: z.coerce.number().int().min(0).max(100000).default(0),
+  autoTapBoost: z.coerce.number().int().min(0).max(100000).default(0)
+});
+
 const snapshotSchema = z.object({
   batchTag: z.string().min(2).max(50)
 });
@@ -56,7 +75,7 @@ const toggleEventSchema = z.object({
 router.use(requireAuth, requireAdmin);
 
 router.get("/dashboard", async (_req, res) => {
-  const [totalUsers, activeTodayEvents, totalPointsAgg, topUsers, snapshotsCount, activeEvents] =
+  const [totalUsers, activeTodayEvents, totalPointsAgg, totalStarsSpentAgg, topUsers, snapshotsCount, activeEvents] =
     await Promise.all([
     prisma.user.count(),
     prisma.tapEvent.findMany({
@@ -64,6 +83,7 @@ router.get("/dashboard", async (_req, res) => {
       select: { userId: true }
     }),
     prisma.user.aggregate({ _sum: { points: true } }),
+    prisma.user.aggregate({ _sum: { starsSpent: true } }),
     prisma.user.findMany({
       take: 10,
       orderBy: { points: "desc" },
@@ -72,7 +92,8 @@ router.get("/dashboard", async (_req, res) => {
         username: true,
         firstName: true,
         points: true,
-        pph: true
+        pph: true,
+        autoTapPerHour: true
       }
     }),
     prisma.airdropSnapshot.count(),
@@ -90,6 +111,7 @@ router.get("/dashboard", async (_req, res) => {
     totalUsers,
     activeToday,
     totalPoints: (totalPointsAgg._sum.points ?? BigInt(0)).toString(),
+    totalStarsSpent: totalStarsSpentAgg._sum.starsSpent ?? 0,
     snapshotsCount,
     activeEvents,
     topUsers: topUsers.map((user) => ({
@@ -133,7 +155,7 @@ router.get("/users", validateQuery(paginationSchema), async (req, res) => {
 
 router.post("/tasks/upsert", validateBody(upsertTaskSchema), async (req, res) => {
   const payload = req.body as z.infer<typeof upsertTaskSchema>;
-  const taskCreateData: Prisma.TaskCreateInput = {
+  const taskCreateData = {
     key: payload.key,
     titleAr: payload.titleAr,
     titleEn: payload.titleEn,
@@ -143,7 +165,7 @@ router.post("/tasks/upsert", validateBody(upsertTaskSchema), async (req, res) =>
     isDaily: payload.isDaily,
     isActive: payload.isActive
   };
-  const taskUpdateData: Prisma.TaskUpdateInput = {
+  const taskUpdateData = {
     titleAr: payload.titleAr,
     titleEn: payload.titleEn,
     type: payload.type,
@@ -172,6 +194,67 @@ router.get("/tasks", async (_req, res) => {
   res.json(tasks.map((task) => serializeTask(task)));
 });
 
+router.get("/upgrades", async (_req, res) => {
+  const upgrades = await prisma.upgrade.findMany({
+    orderBy: [{ category: "asc" }, { baseCost: "asc" }]
+  });
+
+  res.json(upgrades.map((upgrade) => serializeUpgrade(upgrade)));
+});
+
+router.post("/upgrades/upsert", validateBody(upsertUpgradeSchema), async (req, res) => {
+  const payload = req.body as z.infer<typeof upsertUpgradeSchema>;
+  const upgradeCreateData = {
+    key: payload.key,
+    titleAr: payload.titleAr,
+    titleEn: payload.titleEn,
+    descriptionAr: payload.descriptionAr,
+    descriptionEn: payload.descriptionEn,
+    icon: payload.icon,
+    imageUrl: payload.imageUrl,
+    category: payload.category,
+    baseCost: payload.baseCost,
+    maxLevel: payload.maxLevel,
+    difficulty: payload.difficulty,
+    unlockLevel: payload.unlockLevel,
+    starsPrice: payload.starsPrice,
+    pphBoost: payload.pphBoost,
+    tapBoost: payload.tapBoost,
+    energyBoost: payload.energyBoost,
+    autoTapBoost: payload.autoTapBoost
+  };
+
+  const upgradeUpdateData = {
+    titleAr: payload.titleAr,
+    titleEn: payload.titleEn,
+    descriptionAr: payload.descriptionAr,
+    descriptionEn: payload.descriptionEn,
+    icon: payload.icon,
+    imageUrl: payload.imageUrl,
+    category: payload.category,
+    baseCost: payload.baseCost,
+    maxLevel: payload.maxLevel,
+    difficulty: payload.difficulty,
+    unlockLevel: payload.unlockLevel,
+    starsPrice: payload.starsPrice,
+    pphBoost: payload.pphBoost,
+    tapBoost: payload.tapBoost,
+    energyBoost: payload.energyBoost,
+    autoTapBoost: payload.autoTapBoost
+  };
+
+  const upgrade = await prisma.upgrade.upsert({
+    where: { key: payload.key },
+    update: upgradeUpdateData,
+    create: upgradeCreateData
+  });
+
+  res.status(StatusCodes.OK).json({
+    message: "Upgrade saved.",
+    upgrade: serializeUpgrade(upgrade)
+  });
+});
+
 router.get("/events", async (_req, res) => {
   const events = await prisma.specialEvent.findMany({
     orderBy: { startsAt: "desc" }
@@ -187,7 +270,7 @@ router.post("/events/upsert", validateBody(upsertEventSchema), async (req, res) 
     return;
   }
 
-  const eventCreateData: Prisma.SpecialEventCreateInput = {
+  const eventCreateData = {
     key: payload.key,
     nameAr: payload.nameAr,
     nameEn: payload.nameEn,
@@ -196,7 +279,7 @@ router.post("/events/upsert", validateBody(upsertEventSchema), async (req, res) 
     endsAt: payload.endsAt,
     isActive: payload.isActive
   };
-  const eventUpdateData: Prisma.SpecialEventUpdateInput = {
+  const eventUpdateData = {
     nameAr: payload.nameAr,
     nameEn: payload.nameEn,
     multiplier: payload.multiplier,
