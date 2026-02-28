@@ -19,16 +19,20 @@ const DEFAULT_LANG: Lang = LANGS.includes(env.DEFAULT_LANGUAGE as Lang)
   : "ar";
 
 const enText = {
-  welcome: "Welcome to VaultTap!\\nPress the button below and start earning now.",
+  welcome:
+    "Welcome to VaultTap!\\nTap, upgrade, complete tasks, and grow your balance faster every day.",
+  menuHint: "Quick actions are ready below. Open the mini app and start now.",
   openApp: "🚀 Open VaultTap Mini App",
   profile: "👤 Profile",
   leaderboard: "🏆 Leaderboard",
   tasks: "✅ Tasks",
   referrals: "👥 Referrals",
   language: "🌐 Language",
+  helpButton: "❓ Help",
   chooseLanguage: "Choose language:",
   profileTitle: "Your current stats",
   globalTop: "Top 10 players",
+  topEmpty: "No leaderboard data yet.",
   tasksTitle: "Tasks list",
   noTasks: "No tasks available right now.",
   claimDaily: "Claim daily task",
@@ -59,16 +63,20 @@ type BotText = Record<TextKey, string>;
 
 const text: Record<Lang, BotText> = {
   ar: {
-    welcome: "هلا وسهلا بك في بوت VaultTap 🚀\\nاضغط الزر بالأسفل وابدأ تجميع النقاط الآن.",
+    welcome:
+      "هلا وسهلا بك في VaultTap 🚀\\nاضغط وطور حسابك وأنجز المهام واجمع النقاط بسرعة أكبر كل يوم.",
+    menuHint: "الأزرار السريعة جاهزة بالأسفل. افتح الميني آب وابدأ اللعب الآن.",
     openApp: "🚀 فتح تطبيق VaultTap",
     profile: "👤 ملفي",
     leaderboard: "🏆 الصدارة",
     tasks: "✅ المهام",
     referrals: "👥 الإحالات",
     language: "🌐 اللغة",
+    helpButton: "❓ مساعدة",
     chooseLanguage: "اختر اللغة:",
     profileTitle: "إحصائياتك الحالية",
     globalTop: "أفضل 10 لاعبين",
+    topEmpty: "لا توجد بيانات صدارة حتى الآن.",
     tasksTitle: "قائمة المهام",
     noTasks: "لا توجد مهام متاحة الآن.",
     claimDaily: "تحصيل المهمة اليومية",
@@ -120,11 +128,12 @@ function mainMenu(userId: number) {
     .webApp(t(userId, "openApp"), env.TELEGRAM_WEBAPP_URL)
     .row()
     .text(t(userId, "profile"), "profile")
-    .text(t(userId, "leaderboard"), "leaderboard")
     .text(t(userId, "tasks"), "tasks")
+    .text(t(userId, "leaderboard"), "leaderboard")
     .row()
     .text(t(userId, "referrals"), "referrals")
-    .text(t(userId, "language"), "language");
+    .text(t(userId, "language"), "language")
+    .text(t(userId, "helpButton"), "help");
 }
 
 function langMenu() {
@@ -153,28 +162,43 @@ function humanError(userId: number, error: unknown): string {
   return message || t(userId, "error");
 }
 
+function welcomeMessage(userId: number): string {
+  return `${t(userId, "welcome")}\\n\\n${t(userId, "menuHint")}`;
+}
+
+function rankPrefix(rank: number): string {
+  if (rank === 1) return "🥇";
+  if (rank === 2) return "🥈";
+  if (rank === 3) return "🥉";
+  return `${rank}.`;
+}
+
 const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
 async function sendProfile(user: TelegramUserPayload, reply: (message: string) => Promise<unknown>) {
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
   const data = await getProfile(user);
   await reply(
-    `${t(user.id, "profileTitle")}\\n` +
-      `${t(user.id, "pointsLabel")}: ${data.user.points}\\n` +
-      `${t(user.id, "energyLabel")}: ${data.user.energy}/${data.user.maxEnergy}\\n` +
-      `${t(user.id, "comboLabel")}: x${data.user.comboMultiplier.toFixed(2)}\\n` +
-      `${t(user.id, "pphLabel")}: ${data.user.pph}\\n` +
-      `${t(user.id, "tapPowerLabel")}: ${data.user.tapPower}\\n` +
-      `${t(user.id, "totalTapsLabel")}: ${data.user.totalTaps}\\n` +
-      `${t(user.id, "referralCodeLabel")}: ${data.user.referralCode}`
+    `📊 ${t(user.id, "profileTitle")}\\n` +
+      `• ${t(user.id, "pointsLabel")}: ${data.user.points}\\n` +
+      `• ${t(user.id, "energyLabel")}: ${data.user.energy}/${data.user.maxEnergy}\\n` +
+      `• ${t(user.id, "comboLabel")}: x${data.user.comboMultiplier.toFixed(2)}\\n` +
+      `• ${t(user.id, "pphLabel")}: ${data.user.pph}\\n` +
+      `• ${t(user.id, "tapPowerLabel")}: ${data.user.tapPower}\\n` +
+      `• ${t(user.id, "totalTapsLabel")}: ${data.user.totalTaps}\\n` +
+      `• ${t(user.id, "referralCodeLabel")}: ${data.user.referralCode}`
   );
 }
 
 async function sendTop(user: TelegramUserPayload, reply: (message: string) => Promise<unknown>) {
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
   const top = await getLeaderboard("global", user);
-  const rows = top.map((item) => `${item.rank}. ${item.name} - ${item.points}`).join("\\n");
-  await reply(`${t(user.id, "globalTop")}\\n${rows}`);
+  if (top.length === 0) {
+    await reply(t(user.id, "topEmpty"));
+    return;
+  }
+  const rows = top.map((item) => `${rankPrefix(item.rank)} ${item.name} — ${item.points}`).join("\\n");
+  await reply(`🏆 ${t(user.id, "globalTop")}\\n${rows}`);
 }
 
 async function sendTasks(user: TelegramUserPayload, reply: (message: string, keyboard?: InlineKeyboard) => Promise<unknown>) {
@@ -188,8 +212,8 @@ async function sendTasks(user: TelegramUserPayload, reply: (message: string, key
 
   const lines = data.tasks.slice(0, 8).map((task) => {
     const title = lang === "ar" ? task.titleAr : task.titleEn;
-    const status = task.isClaimed ? `(${t(user.id, "claimed")})` : "";
-    return `- ${title} +${task.reward} ${status}`.trim();
+    const status = task.isClaimed ? `✅ ${t(user.id, "claimed")}` : "⏳";
+    return `${status} ${title} (+${task.reward})`;
   });
 
   const daily = data.tasks.find((task) => task.key === "daily_check_in" && !task.isClaimed);
@@ -197,17 +221,17 @@ async function sendTasks(user: TelegramUserPayload, reply: (message: string, key
     ? new InlineKeyboard().text(t(user.id, "claimDaily"), `claim:${daily.id}`)
     : undefined;
 
-  await reply(`${t(user.id, "tasksTitle")}\\n${lines.join("\\n")}`, keyboard);
+  await reply(`🎯 ${t(user.id, "tasksTitle")}\\n${lines.join("\\n")}`, keyboard);
 }
 
 async function sendReferrals(user: TelegramUserPayload, reply: (message: string) => Promise<unknown>) {
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
   const data = await getReferrals(user);
   await reply(
-    `${t(user.id, "referralsTitle")}\\n` +
-      `${t(user.id, "level1Label")}: ${data.level1Count}\\n` +
-      `${t(user.id, "level2Label")}: ${data.level2Count}\\n` +
-      `${t(user.id, "estimatedRewardsLabel")}: ${data.estimatedRewards}`
+    `👥 ${t(user.id, "referralsTitle")}\\n` +
+      `• ${t(user.id, "level1Label")}: ${data.level1Count}\\n` +
+      `• ${t(user.id, "level2Label")}: ${data.level2Count}\\n` +
+      `• ${t(user.id, "estimatedRewardsLabel")}: ${data.estimatedRewards}`
   );
 }
 
@@ -220,8 +244,9 @@ bot.command("start", async (ctx) => {
   userLangStore.set(user.id, lang);
 
   try {
+    await ctx.replyWithChatAction("typing");
     await loginWithTelegram(user, referralCode);
-    await ctx.reply(t(user.id, "welcome"), {
+    await ctx.reply(welcomeMessage(user.id), {
       reply_markup: mainMenu(user.id)
     });
   } catch (error) {
@@ -233,7 +258,7 @@ bot.command("menu", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
-  await ctx.reply(t(user.id, "welcome"), {
+  await ctx.reply(welcomeMessage(user.id), {
     reply_markup: mainMenu(user.id)
   });
 });
@@ -242,6 +267,7 @@ bot.command("help", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
+  await ctx.replyWithChatAction("typing");
   await ctx.reply(t(user.id, "help"), {
     reply_markup: mainMenu(user.id)
   });
@@ -251,6 +277,7 @@ bot.command("profile", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
+    await ctx.replyWithChatAction("typing");
     await sendProfile(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -261,6 +288,7 @@ bot.command("top", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
+    await ctx.replyWithChatAction("typing");
     await sendTop(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -271,6 +299,7 @@ bot.command("tasks", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
+    await ctx.replyWithChatAction("typing");
     await sendTasks(user, (message, keyboard) => ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -281,6 +310,7 @@ bot.command("ref", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
+    await ctx.replyWithChatAction("typing");
     await sendReferrals(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -298,6 +328,7 @@ bot.command("lang", async (ctx) => {
 bot.callbackQuery("profile", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
+    await ctx.replyWithChatAction("typing");
     await sendProfile(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
@@ -307,6 +338,7 @@ bot.callbackQuery("profile", async (ctx) => {
 bot.callbackQuery("leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
+    await ctx.replyWithChatAction("typing");
     await sendTop(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
@@ -316,6 +348,7 @@ bot.callbackQuery("leaderboard", async (ctx) => {
 bot.callbackQuery("tasks", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
+    await ctx.replyWithChatAction("typing");
     await sendTasks(ctx.from, (message, keyboard) =>
       ctx.reply(message, { reply_markup: keyboard ?? mainMenu(ctx.from.id) })
     );
@@ -327,6 +360,7 @@ bot.callbackQuery("tasks", async (ctx) => {
 bot.callbackQuery("referrals", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
+    await ctx.replyWithChatAction("typing");
     await sendReferrals(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
@@ -337,6 +371,13 @@ bot.callbackQuery("language", async (ctx) => {
   await ctx.answerCallbackQuery();
   await ctx.reply(t(ctx.from.id, "chooseLanguage"), {
     reply_markup: langMenu()
+  });
+});
+
+bot.callbackQuery("help", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await ctx.reply(t(ctx.from.id, "help"), {
+    reply_markup: mainMenu(ctx.from.id)
   });
 });
 
@@ -367,7 +408,7 @@ bot.callbackQuery(/^lang:(.+)$/, async (ctx) => {
   }
   userLangStore.set(ctx.from.id, requested);
   await ctx.answerCallbackQuery({ text: requested.toUpperCase() });
-  await ctx.reply(t(ctx.from.id, "welcome"), {
+  await ctx.reply(welcomeMessage(ctx.from.id), {
     reply_markup: mainMenu(ctx.from.id)
   });
 });

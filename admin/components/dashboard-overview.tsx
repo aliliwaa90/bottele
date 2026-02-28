@@ -17,6 +17,14 @@ type DashboardState = {
   topUsers: Array<{ id: string; name: string; points: string; pph: number }>;
 };
 
+const metricCards = [
+  { key: "totalUsers", label: "إجمالي المستخدمين", accent: "from-sky-500 to-cyan-500" },
+  { key: "activeToday", label: "نشطون اليوم", accent: "from-emerald-500 to-teal-500" },
+  { key: "totalPoints", label: "إجمالي النقاط", accent: "from-indigo-500 to-blue-500" },
+  { key: "snapshotsCount", label: "لقطات الإيردروب", accent: "from-amber-500 to-orange-500" },
+  { key: "activeEvents", label: "الأحداث النشطة", accent: "from-fuchsia-500 to-pink-500" }
+] as const;
+
 export function DashboardOverview() {
   const [data, setData] = useState<DashboardState | null>(null);
   const [error, setError] = useState("");
@@ -50,42 +58,46 @@ export function DashboardOverview() {
   const chartData = useMemo(
     () =>
       (data?.topUsers ?? []).map((user) => ({
-        name: user.name.slice(0, 10),
+        name: user.name.slice(0, 14),
         points: Number(user.points)
       })),
     [data]
   );
 
   if (error) {
-    return <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
+    return <div className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">{error}</div>;
   }
 
   if (!data) {
-    return <div className="rounded-lg border border-border bg-card p-4">جاري تحميل لوحة التحكم...</div>;
+    return <div className="rounded-xl border border-border bg-card p-4">جارٍ تحميل لوحة التحكم...</div>;
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <MetricCard label="إجمالي المستخدمين" value={formatNumber(data.totalUsers)} />
-        <MetricCard label="النشطون اليوم" value={formatNumber(data.activeToday)} />
-        <MetricCard label="إجمالي النقاط" value={formatNumber(data.totalPoints)} />
-        <MetricCard label="لقطات الإيردروب" value={formatNumber(data.snapshotsCount)} />
-        <MetricCard label="الأحداث النشطة" value={formatNumber(data.activeEvents)} />
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>أفضل المستخدمين</CardTitle>
+    <div className="space-y-6">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {metricCards.map((metric) => (
+          <MetricCard
+            key={metric.key}
+            label={metric.label}
+            value={formatNumber(data[metric.key])}
+            accent={metric.accent}
+          />
+        ))}
+      </section>
+
+      <Card className="overflow-hidden border-sky-100/70 shadow-xl shadow-sky-100/30">
+        <CardHeader className="border-b border-sky-100 bg-gradient-to-l from-sky-50 to-white">
+          <CardTitle className="text-xl">أفضل اللاعبين حسب النقاط</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="h-72 w-full">
+        <CardContent className="pt-4">
+          <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
+                <CartesianGrid strokeDasharray="4 4" />
                 <XAxis dataKey="name" />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="points" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="points" fill="#0284c7" radius={[10, 10, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -95,12 +107,13 @@ export function DashboardOverview() {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-lg font-bold">{value}</p>
+    <Card className="overflow-hidden border-sky-100/70">
+      <CardContent className="relative p-4">
+        <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${accent}`} />
+        <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+        <p className="mt-1 text-2xl font-extrabold tracking-tight">{value}</p>
       </CardContent>
     </Card>
   );

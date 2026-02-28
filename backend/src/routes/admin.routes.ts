@@ -2,6 +2,7 @@ import { Router } from "express";
 import ExcelJS from "exceljs";
 import { StatusCodes } from "http-status-codes";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma.js";
 import { getSocket } from "../lib/socket.js";
@@ -132,10 +133,29 @@ router.get("/users", validateQuery(paginationSchema), async (req, res) => {
 
 router.post("/tasks/upsert", validateBody(upsertTaskSchema), async (req, res) => {
   const payload = req.body as z.infer<typeof upsertTaskSchema>;
+  const taskCreateData: Prisma.TaskCreateInput = {
+    key: payload.key,
+    titleAr: payload.titleAr,
+    titleEn: payload.titleEn,
+    type: payload.type,
+    reward: payload.reward,
+    link: payload.link,
+    isDaily: payload.isDaily,
+    isActive: payload.isActive
+  };
+  const taskUpdateData: Prisma.TaskUpdateInput = {
+    titleAr: payload.titleAr,
+    titleEn: payload.titleEn,
+    type: payload.type,
+    reward: payload.reward,
+    link: payload.link,
+    isDaily: payload.isDaily,
+    isActive: payload.isActive
+  };
   const task = await prisma.task.upsert({
     where: { key: payload.key },
-    update: payload,
-    create: payload
+    update: taskUpdateData,
+    create: taskCreateData
   });
 
   res.status(StatusCodes.OK).json({
@@ -167,10 +187,27 @@ router.post("/events/upsert", validateBody(upsertEventSchema), async (req, res) 
     return;
   }
 
+  const eventCreateData: Prisma.SpecialEventCreateInput = {
+    key: payload.key,
+    nameAr: payload.nameAr,
+    nameEn: payload.nameEn,
+    multiplier: payload.multiplier,
+    startsAt: payload.startsAt,
+    endsAt: payload.endsAt,
+    isActive: payload.isActive
+  };
+  const eventUpdateData: Prisma.SpecialEventUpdateInput = {
+    nameAr: payload.nameAr,
+    nameEn: payload.nameEn,
+    multiplier: payload.multiplier,
+    startsAt: payload.startsAt,
+    endsAt: payload.endsAt,
+    isActive: payload.isActive
+  };
   const event = await prisma.specialEvent.upsert({
     where: { key: payload.key },
-    update: payload,
-    create: payload
+    update: eventUpdateData,
+    create: eventCreateData
   });
 
   getSocket().emit("event:update", {

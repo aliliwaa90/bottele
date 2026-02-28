@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { ADMIN_AUTH_COOKIE, isValidAdminSession } from "@/lib/admin-auth";
+
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4000";
 const adminToken = process.env.ADMIN_TOKEN ?? "";
 
@@ -9,6 +11,11 @@ function buildTarget(path: string[], search: string): string {
 }
 
 async function forward(request: NextRequest, method: "GET" | "POST") {
+  const session = request.cookies.get(ADMIN_AUTH_COOKIE)?.value;
+  if (!isValidAdminSession(session)) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
   const path = request.nextUrl.pathname.split("/").slice(3);
   const target = buildTarget(path, request.nextUrl.search);
   const body = method === "POST" ? await request.text() : undefined;

@@ -1,8 +1,8 @@
 import compression from "compression";
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
-import helmet from "helmet";
+import rateLimitFactory from "express-rate-limit";
+import helmetFactory from "helmet";
 import morgan from "morgan";
 
 import { env } from "./config/env.js";
@@ -11,6 +11,13 @@ import { notFound } from "./middleware/not-found.js";
 import routes from "./routes/index.js";
 
 export const app = express();
+const helmet = helmetFactory as unknown as () => ReturnType<typeof express.json>;
+const rateLimit = rateLimitFactory as unknown as (options: {
+  windowMs: number;
+  max: number;
+  standardHeaders: boolean;
+  legacyHeaders: boolean;
+}) => ReturnType<typeof express.json>;
 
 app.set("trust proxy", 1);
 app.use(helmet());
@@ -36,4 +43,3 @@ app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use("/api", routes);
 app.use(notFound);
 app.use(errorHandler);
-
