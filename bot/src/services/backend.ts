@@ -9,6 +9,7 @@ export type TelegramUserPayload = {
 };
 
 const tokenStore = new Map<number, string>();
+const BACKEND_REQUEST_TIMEOUT_MS = 7000;
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers ?? {});
@@ -18,10 +19,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   headers.set("x-bot-token", env.TELEGRAM_BOT_TOKEN);
 
-  const response = await fetch(`${env.BACKEND_URL}/api${path}`, {
-    ...options,
-    headers
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BACKEND_REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${env.BACKEND_URL}/api${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("backend timeout");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     const data = await response.json().catch(() => ({ message: "request failed" }));
     throw new Error(data.message || "request failed");

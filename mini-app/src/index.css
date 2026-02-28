@@ -6,20 +6,20 @@
 
 @layer base {
   :root {
-    --background: 220 46% 9%;
-    --foreground: 45 100% 95%;
-    --card: 223 36% 14%;
-    --card-foreground: 45 100% 95%;
-    --primary: 43 96% 56%;
-    --primary-foreground: 222 45% 9%;
-    --secondary: 216 28% 20%;
-    --secondary-foreground: 44 100% 95%;
-    --muted: 218 20% 23%;
-    --muted-foreground: 43 30% 70%;
-    --accent: 14 86% 57%;
-    --accent-foreground: 39 100% 97%;
-    --border: 216 25% 29%;
-    --ring: 43 96% 56%;
+    --background: 223 44% 8%;
+    --foreground: 43 100% 96%;
+    --card: 223 33% 13%;
+    --card-foreground: 43 100% 96%;
+    --primary: 42 98% 60%;
+    --primary-foreground: 224 52% 10%;
+    --secondary: 221 28% 20%;
+    --secondary-foreground: 43 90% 93%;
+    --muted: 220 22% 26%;
+    --muted-foreground: 41 36% 73%;
+    --accent: 18 91% 57%;
+    --accent-foreground: 38 100% 98%;
+    --border: 219 24% 31%;
+    --ring: 42 98% 60%;
     --radius: 1rem;
   }
 
@@ -37,8 +37,15 @@
     @apply bg-background text-foreground antialiased;
     font-family: "Cairo", sans-serif;
     background-image:
-      radial-gradient(circle at 20% 20%, rgba(255, 171, 16, 0.22), transparent 40%),
-      radial-gradient(circle at 80% 0%, rgba(249, 91, 69, 0.2), transparent 45%),
-      linear-gradient(140deg, rgba(8, 18, 41, 0.95), rgba(23, 13, 39, 0.9));
+      radial-gradient(circle at 14% 8%, rgba(251, 191, 36, 0.24), transparent 36%),
+      radial-gradient(circle at 84% 0%, rgba(249, 115, 22, 0.2), transparent 36%),
+      radial-gradient(circle at 50% 100%, rgba(14, 165, 233, 0.14), transparent 45%),
+      linear-gradient(160deg, rgba(7, 16, 38, 0.98), rgba(20, 14, 36, 0.95));
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(251, 191, 36, 0.35);
+    color: #fff;
   }
 }

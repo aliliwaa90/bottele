@@ -55,6 +55,7 @@ const enText = {
   actionFailed: "Action failed.",
   help:
     "Commands:\\n/start Start bot\\n/menu Main menu\\n/profile Your stats\\n/top Leaderboard\\n/tasks Tasks\\n/ref Referrals\\n/lang Change language",
+  fastStartReady: "Ready. Your account is being prepared in the background.",
   error: "Something went wrong. Try again."
 };
 
@@ -99,6 +100,7 @@ const text: Record<Lang, BotText> = {
     actionFailed: "فشلت العملية.",
     help:
       "الأوامر:\\n/start تشغيل البوت\\n/menu القائمة الرئيسية\\n/profile ملفك\\n/top الصدارة\\n/tasks المهام\\n/ref الإحالات\\n/lang تغيير اللغة",
+    fastStartReady: "تم التجهيز. يتم تهيئة حسابك بالخلفية.",
     error: "حدث خطأ، حاول مرة أخرى."
   },
   en: enText,
@@ -156,6 +158,9 @@ function humanError(userId: number, error: unknown): string {
     return t(userId, "loginSetupError");
   }
   if (message.includes("fetch failed") || message.includes("Failed to fetch")) {
+    return t(userId, "serverDownError");
+  }
+  if (message.includes("backend timeout")) {
     return t(userId, "serverDownError");
   }
 
@@ -245,9 +250,11 @@ bot.command("start", async (ctx) => {
 
   try {
     await ctx.replyWithChatAction("typing");
-    await loginWithTelegram(user, referralCode);
     await ctx.reply(welcomeMessage(user.id), {
       reply_markup: mainMenu(user.id)
+    });
+    void loginWithTelegram(user, referralCode).catch((error) => {
+      console.error(`background login failed for ${user.id}:`, error);
     });
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
