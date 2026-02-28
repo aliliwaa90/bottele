@@ -13,34 +13,42 @@ function run(command, args) {
 
 const isVercel = Boolean(process.env.VERCEL);
 const vercelProject = (process.env.VERCEL_PROJECT_NAME ?? "").toLowerCase();
+const forcedTarget = (process.env.VT_DEPLOY_TARGET ?? "").toLowerCase();
+const cwd = process.cwd().replace(/\\/g, "/").toLowerCase();
+const isVercelDetected =
+  isVercel ||
+  cwd.includes("/vercel/path0") ||
+  Boolean(process.env.VERCEL_URL) ||
+  Boolean(process.env.VERCEL_REGION);
+const deployTarget = forcedTarget || vercelProject;
 
-if (!isVercel) {
+if (!isVercelDetected) {
   run("npx", ["turbo", "run", "build"]);
   process.exit(0);
 }
 
-if (vercelProject.includes("mini")) {
+if (deployTarget.includes("mini")) {
   run("npm", ["run", "build", "--workspace", "@vaulttap/mini-app"]);
   process.exit(0);
 }
 
-if (vercelProject.includes("backend")) {
+if (deployTarget.includes("backend")) {
   run("npm", ["run", "build", "--workspace", "@vaulttap/backend"]);
   process.exit(0);
 }
 
-if (vercelProject.includes("admin")) {
+if (deployTarget.includes("admin")) {
   run("npm", ["run", "build", "--workspace", "@vaulttap/admin"]);
   process.exit(0);
 }
 
-if (vercelProject.includes("-bot") || vercelProject.endsWith("bot")) {
+if (deployTarget.includes("-bot") || deployTarget.endsWith("bot") || deployTarget === "bot") {
   run("npm", ["run", "build", "--workspace", "@vaulttap/bot"]);
   process.exit(0);
 }
 
 console.warn(
-  `[VaultTap] Unknown VERCEL_PROJECT_NAME="${process.env.VERCEL_PROJECT_NAME ?? ""}", building web targets only.`
+  `[VaultTap] Unknown deploy target (VT_DEPLOY_TARGET="${forcedTarget}", VERCEL_PROJECT_NAME="${process.env.VERCEL_PROJECT_NAME ?? ""}"), building web targets only.`
 );
 run("npx", [
   "turbo",
