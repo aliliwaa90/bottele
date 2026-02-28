@@ -17,7 +17,8 @@
   ],
   "scripts": {
     "dev": "turbo run dev --parallel",
-    "build": "turbo run build",
+    "build": "node scripts/build.mjs",
+    "build:all": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "turbo run format",
