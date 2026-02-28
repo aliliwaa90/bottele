@@ -1,5 +1,5 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Bot,
   Clock3,
@@ -7,15 +7,20 @@ import {
   Crown,
   Flame,
   Globe,
+  Home,
+  ListChecks,
+  Settings,
   ShieldCheck,
   Sparkles,
   Star,
   Target,
+  TrendingUp,
   Trophy,
   Users,
   Wallet,
   Zap
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { TonConnectButton } from "@tonconnect/ui-react";
 import { toast } from "sonner";
@@ -26,7 +31,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { connectSocket, disconnectSocket } from "@/lib/socket";
 import {
@@ -40,7 +44,9 @@ import type { LeaderboardItem, Task, Upgrade, User } from "@/types/api";
 
 const RTL_LANGS = new Set(["ar", "fa"]);
 const SUPPORTED_LANGS = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
+
 type BoardType = "global" | "weekly" | "friends";
+type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard" | "settings";
 
 type FloatingGain = { id: number; value: number; left: number; top: number };
 type ReferralStats = {
@@ -49,6 +55,22 @@ type ReferralStats = {
   estimatedRewards: number;
   referrals: Array<{ id: string; name: string; points: string }>;
 };
+
+type NavItem = {
+  key: ActiveTab;
+  labelAr: string;
+  labelEn: string;
+  icon: LucideIcon;
+};
+
+const NAV_ITEMS: NavItem[] = [
+  { key: "home", labelAr: "الرئيسية", labelEn: "Home", icon: Home },
+  { key: "upgrades", labelAr: "الترقيات", labelEn: "Upgrades", icon: TrendingUp },
+  { key: "tasks", labelAr: "المهام", labelEn: "Tasks", icon: ListChecks },
+  { key: "friends", labelAr: "الأصدقاء", labelEn: "Friends", icon: Users },
+  { key: "leaderboard", labelAr: "الصدارة", labelEn: "Top", icon: Trophy },
+  { key: "settings", labelAr: "الإعدادات", labelEn: "Settings", icon: Settings }
+];
 
 const TAP_FLUSH_DELAY_MS = 120;
 const TURBO_TAP_SIZE = 10;
@@ -96,9 +118,34 @@ function categoryStyle(category: string): string {
   }
 }
 
+function numericFromString(input: string): number {
+  try {
+    const value = BigInt(input);
+    const max = BigInt(Number.MAX_SAFE_INTEGER);
+    if (value > max) return Number.MAX_SAFE_INTEGER;
+    return Number(value);
+  } catch {
+    return Number(input) || 0;
+  }
+}
+
+function addToNumericString(value: string, increment: number) {
+  if (increment <= 0) return value;
+  try {
+    return (BigInt(value) + BigInt(increment)).toString();
+  } catch {
+    return String((Number(value) || 0) + increment);
+  }
+}
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const socketEnabled = import.meta.env.VITE_DISABLE_SOCKET !== "true";
+  const botUsername =
+    (import.meta.env.VITE_BOT_USERNAME ?? import.meta.env.VITE_TELEGRAM_BOT_USERNAME ?? "")
+      .toString()
+      .replace("@", "")
+      .trim();
 
   const [loading, setLoading] = useState(true);
   const [outsideTelegram, setOutsideTelegram] = useState(false);
@@ -106,6 +153,7 @@ export default function App() {
   const [upgrades, setUpgrades] = useState<Upgrade[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
+  const [activeTab, setActiveTab] = useState<ActiveTab>("home");
   const [leaderboardType, setLeaderboardType] = useState<BoardType>("global");
   const [referral, setReferral] = useState<{ directReferrals: number; referralCode: string } | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
@@ -126,20 +174,44 @@ export default function App() {
   const flushingTapsRef = useRef(false);
   const tapFlushTimerRef = useRef<number | null>(null);
 
-  const energyPercent = useMemo(() => {
-    if (!user || user.maxEnergy === 0) return 0;
-    return Math.round((user.energy / user.maxEnergy) * 100);
-  }, [user]);
-  const turboCooldownSeconds = useMemo(() => {
-    const diff = Math.max(0, turboCooldownUntil - nowTick);
-    return Math.ceil(diff / 1000);
-  }, [turboCooldownUntil, nowTick]);
-
   const isRtl = RTL_LANGS.has(i18n.language);
   const displayName =
     user?.firstName?.trim() ||
     user?.username?.trim() ||
     `${t("leaderboard.player")} #${String(user?.telegramId ?? "").slice(-4) || "0000"}`;
+
+  const energyPercent = useMemo(() => {
+    if (!user || user.maxEnergy === 0) return 0;
+    return Math.round((user.energy / user.maxEnergy) * 100);
+  }, [user]);
+
+  const turboCooldownSeconds = useMemo(() => {
+    const diff = Math.max(0, turboCooldownUntil - nowTick);
+    return Math.ceil(diff / 1000);
+  }, [turboCooldownUntil, nowTick]);
+
+  const pointsNumber = useMemo(() => numericFromString(user?.points ?? "0"), [user?.points]);
+
+  const playerLevel = useMemo(() => {
+    if (!user) return 1;
+    const levelFromScore = Math.floor(Math.pow(pointsNumber + 400, 0.17));
+    return Math.min(105, Math.max(1, levelFromScore));
+  }, [pointsNumber, user]);
+
+  const levelProgress = useMemo(() => {
+    if (!user || playerLevel >= 105) return 100;
+    const prevNeed = Math.floor(Math.pow(playerLevel + 2, 3) * 120);
+    const nextNeed = Math.floor(Math.pow(playerLevel + 3, 3) * 120);
+    const current = pointsNumber;
+    if (current <= prevNeed) return 0;
+    const ratio = (current - prevNeed) / Math.max(1, nextNeed - prevNeed);
+    return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+  }, [playerLevel, pointsNumber, user]);
+
+  const navActiveIndex = useMemo(() => {
+    const index = NAV_ITEMS.findIndex((item) => item.key === activeTab);
+    return index < 0 ? 0 : index;
+  }, [activeTab]);
 
   useEffect(() => {
     userRef.current = user;
@@ -190,6 +262,7 @@ export default function App() {
           referralCode,
           initData: tgInitData ?? undefined
         });
+
         api.setToken(login.token);
 
         if (socketEnabled) {
@@ -221,7 +294,9 @@ export default function App() {
         if (mounted) setLoading(false);
       }
     };
+
     void init();
+
     return () => {
       mounted = false;
       if (socketEnabled) {
@@ -249,31 +324,22 @@ export default function App() {
     document.documentElement.dir = isRtl ? "rtl" : "ltr";
   }, [i18n.language, isRtl]);
 
+  const activeEventMultiplier = () =>
+    activeEvents.reduce((highest, event) => Math.max(highest, event.multiplier), 1);
+
   const addFloatingGain = (value: number) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     const gain = {
       id,
       value,
-      left: 42 + Math.random() * 24,
-      top: 40 + Math.random() * 16
+      left: 46 + Math.random() * 12,
+      top: 41 + Math.random() * 14
     };
     setFloatingGains((prev) => [...prev, gain]);
     window.setTimeout(() => {
       setFloatingGains((prev) => prev.filter((item) => item.id !== id));
     }, 900);
   };
-
-  const addToNumericString = (value: string, increment: number) => {
-    if (increment <= 0) return value;
-    try {
-      return (BigInt(value) + BigInt(increment)).toString();
-    } catch {
-      return String((Number(value) || 0) + increment);
-    }
-  };
-
-  const activeEventMultiplier = () =>
-    activeEvents.reduce((highest, event) => Math.max(highest, event.multiplier), 1);
 
   const scheduleTapFlush = (delay = TAP_FLUSH_DELAY_MS) => {
     if (tapFlushTimerRef.current !== null) return;
@@ -289,6 +355,7 @@ export default function App() {
 
     flushingTapsRef.current = true;
     setIsSyncingTaps(true);
+
     try {
       while (pendingTapsRef.current > 0) {
         const batch = Math.min(30, pendingTapsRef.current);
@@ -414,6 +481,38 @@ export default function App() {
     }
   };
 
+  const handleStarsUpgrade = (upgrade: Upgrade) => {
+    if (!upgrade.starsPrice || upgrade.starsPrice <= 0) {
+      toast.warning(isRtl ? "هذه الترقية لا تدعم النجوم" : "This upgrade is not available for Stars.");
+      return;
+    }
+
+    if (!botUsername) {
+      toast.error(
+        isRtl
+          ? "أضف VITE_BOT_USERNAME في متغيرات البيئة أولاً."
+          : "Set VITE_BOT_USERNAME in env variables first."
+      );
+      return;
+    }
+
+    const link = `https://t.me/${botUsername}?start=buy_${encodeURIComponent(upgrade.key)}`;
+    try {
+      if (isTelegramWebApp()) {
+        WebApp.openTelegramLink(link);
+      } else {
+        window.open(link, "_blank", "noopener,noreferrer");
+      }
+      toast.success(
+        isRtl
+          ? "تم فتح شاشة الدفع بالنجوم داخل تيليجرام."
+          : "Stars purchase flow opened in Telegram."
+      );
+    } catch {
+      window.open(link, "_blank", "noopener,noreferrer");
+    }
+  };
+
   const handleClaimTask = async (task: Task) => {
     try {
       await flushTapQueue();
@@ -444,6 +543,17 @@ export default function App() {
     }
   };
 
+  const copyReferralCode = () => {
+    navigator.clipboard
+      .writeText(referral?.referralCode ?? "")
+      .then(() => {
+        toast.success(isRtl ? "تم النسخ" : "Copied");
+      })
+      .catch(() => {
+        toast.error(isRtl ? "تعذر النسخ" : "Failed to copy");
+      });
+  };
+
   const canAfford = (cost: number, points: string): boolean => {
     try {
       return BigInt(points) >= BigInt(cost);
@@ -454,8 +564,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4">
-        <Card className="w-full max-w-md border-primary/30 bg-card/85">
+      <div className="mx-auto flex min-h-screen max-w-md items-center justify-center px-4">
+        <Card className="w-full border-primary/30 bg-card/85">
           <CardContent className="p-6 text-center text-lg font-semibold">{t("common.loading")}</CardContent>
         </Card>
       </div>
@@ -475,7 +585,7 @@ export default function App() {
           <CardContent className="space-y-2 text-sm">
             <p>
               {isRtl
-                ? "هذه الواجهة تعمل من داخل Telegram فقط لحماية حساب اللاعبين."
+                ? "هذه الواجهة تعمل من داخل Telegram فقط لحماية حسابات اللاعبين."
                 : "This interface works only inside Telegram to protect player accounts."}
             </p>
             <p className="text-muted-foreground">
@@ -499,471 +609,535 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="mx-auto max-w-6xl px-3 pb-10 pt-4 md:px-6">
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-        <Card className="overflow-hidden border-primary/20 bg-[linear-gradient(120deg,rgba(8,24,59,.95),rgba(13,26,49,.85)_55%,rgba(41,21,11,.75))]">
-          <CardHeader className="space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Crown size={18} className="text-primary" />
-                  <h1 className="text-2xl font-black">{t("app.title")}</h1>
-                </div>
-                <p className="text-sm text-muted-foreground">{t("app.subtitle")}</p>
-                <p className="text-xs text-amber-200/85">
-                  {isRtl ? `أهلاً ${displayName}` : `Welcome ${displayName}`}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="gap-1">
-                  <Sparkles size={12} />
-                  {t("common.connected")}
-                </Badge>
-                <div className="relative">
-                  <Globe size={13} className="pointer-events-none absolute start-2 top-1/2 -translate-y-1/2 opacity-70" />
-                  <select
-                    className="h-9 rounded-lg border border-border bg-background/90 px-8 text-sm"
-                    value={i18n.language}
-                    onChange={(event) => void i18n.changeLanguage(event.target.value)}
-                  >
-                    {SUPPORTED_LANGS.map((lang) => (
-                      <option key={lang} value={lang}>
-                        {lang.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
+  const homeScreen = (
+    <section className="vt-home-screen">
+      <div className="vt-home-header">
+        <button type="button" className="vt-icon-tile" onClick={() => setActiveTab("settings")}>
+          <Settings size={17} />
+        </button>
+        <button type="button" className="vt-icon-tile" onClick={() => setActiveTab("leaderboard")}>
+          <Trophy size={17} />
+        </button>
+        <div className="vt-level-card">
+          <div className="text-xs text-amber-100/80">{isRtl ? "المستوى" : "Level"}</div>
+          <div className="text-base font-black text-amber-300">{playerLevel} / 105</div>
+          <div className="text-[11px] text-slate-300">{displayName}</div>
+        </div>
+      </div>
 
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-              <StatCard label={t("stats.points")} value={formatNumber(user.points)} icon={<Coins size={14} />} />
-              <StatCard label={t("stats.energy")} value={`${user.energy}/${user.maxEnergy}`} icon={<Zap size={14} />} />
-              <StatCard label={t("stats.combo")} value={`${user.comboMultiplier.toFixed(2)}x`} icon={<Flame size={14} />} />
-              <StatCard label={t("stats.pph")} value={formatNumber(user.pph)} icon={<Clock3 size={14} />} />
-              <StatCard
-                label={isRtl ? "الأوتو-تاب/ساعة" : "AutoTap/H"}
-                value={formatNumber(user.autoTapPerHour)}
-                icon={<Bot size={14} />}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{t("stats.energy")}</span>
-                <span>{energyPercent}%</span>
-              </div>
-              <Progress value={energyPercent} className="h-2.5" />
-            </div>
-            {activeEvents.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {activeEvents.map((event) => (
-                  <Badge key={event.id} className="bg-amber-500/80 text-slate-900">
-                    {t("events.activeBooster")}:{" "}
-                    {(i18n.language === "ar" ? event.nameAr : event.nameEn) || event.nameAr} x{event.multiplier}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-          </CardHeader>
-        </Card>
+      <div className="vt-score-box">
+        <div className="vt-score-value">{formatNumber(user.points)}</div>
+        <div className="vt-score-subtitle">{isRtl ? "إجمالي النقاط المكتسبة" : "Total Earned Points"}</div>
+      </div>
 
-        <Tabs defaultValue="tap">
-          <TabsList className="grid grid-cols-3 md:grid-cols-6">
-            <TabsTrigger value="tap" className="gap-1.5">
-              <Zap size={14} />
-              {t("tabs.tap")}
-            </TabsTrigger>
-            <TabsTrigger value="upgrades" className="gap-1.5">
-              <Sparkles size={14} />
-              {t("tabs.upgrades")}
-            </TabsTrigger>
-            <TabsTrigger value="tasks" className="gap-1.5">
-              <Target size={14} />
-              {t("tabs.tasks")}
-            </TabsTrigger>
-            <TabsTrigger value="referrals" className="gap-1.5">
-              <Users size={14} />
-              {t("tabs.referrals")}
-            </TabsTrigger>
-            <TabsTrigger value="leaderboard" className="gap-1.5">
-              <Trophy size={14} />
-              {t("tabs.leaderboard")}
-            </TabsTrigger>
-            <TabsTrigger value="wallet" className="gap-1.5">
-              <Wallet size={14} />
-              {t("tabs.wallet")}
-            </TabsTrigger>
-          </TabsList>
+      <div className="vt-level-progress">
+        <div className="flex items-center justify-between text-xs text-slate-300/90">
+          <span>{isRtl ? "تقدم المستوى" : "Level progress"}</span>
+          <span>{levelProgress}%</span>
+        </div>
+        <Progress value={levelProgress} className="mt-1.5 h-2" />
+      </div>
 
-          <TabsContent value="tap">
-            <Card className="overflow-hidden">
-              <CardContent className="relative p-5 md:p-7">
-                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_30%,rgba(251,191,36,0.2),transparent_48%)]" />
-                {floatingGains.map((gain) => (
-                  <motion.div
-                    key={gain.id}
-                    initial={{ opacity: 1, y: 0, scale: 0.9 }}
-                    animate={{ opacity: 0, y: -55, scale: 1.1 }}
-                    transition={{ duration: 0.85 }}
-                    className="pointer-events-none absolute z-20 text-sm font-bold text-yellow-300"
-                    style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
-                  >
-                    +{gain.value}
-                  </motion.div>
-                ))}
-                <div className="relative z-10 flex flex-col items-center gap-4">
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleTap}
-                    className={cn(
-                      "group relative grid h-56 w-56 place-items-center rounded-full border-4 border-amber-100/70 bg-[linear-gradient(145deg,#fcd34d,#f59e0b,#ea580c)] shadow-[0_20px_80px_rgba(249,115,22,0.45)] md:h-64 md:w-64",
-                      tapAnimating && "animate-pulseTap"
-                    )}
-                  >
-                    <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.72),transparent_38%)]" />
-                    <span className="absolute -inset-2 rounded-full border border-amber-200/45 opacity-70 blur-[2px]" />
-                    <span className="relative flex flex-col items-center justify-center text-slate-900">
-                      <Crown size={22} />
-                      <span className="text-3xl font-black tracking-widest">VT</span>
-                    </span>
-                  </motion.button>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-amber-100">
-                      +{user.tapPower} / tap | {t("stats.combo")}: {user.comboMultiplier.toFixed(2)}x
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">{t("tap.tapNow")}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={turboCooldownSeconds > 0 || user.energy <= 0}
-                      onClick={handleTurboTap}
-                    >
-                      {turboCooldownSeconds > 0
-                        ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
-                        : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={pendingTapsDisplay === 0 || isSyncingTaps}
-                      onClick={() => void flushTapQueue()}
-                    >
-                      {isSyncingTaps
-                        ? isRtl
-                          ? "جارٍ المزامنة..."
-                          : "Syncing..."
-                        : isRtl
-                          ? "مزامنة الآن"
-                          : "Sync now"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {isRtl
-                      ? `نقرات قيد الإرسال: ${pendingTapsDisplay}`
-                      : `Pending taps: ${pendingTapsDisplay}`}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+      <div className="vt-home-main">
+        {floatingGains.map((gain) => (
+          <motion.div
+            key={gain.id}
+            initial={{ opacity: 0, y: 12, scale: 0.85 }}
+            animate={{ opacity: 1, y: -22, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none absolute z-30 -translate-x-1/2 text-sm font-black text-yellow-300"
+            style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
+          >
+            +{gain.value}
+          </motion.div>
+        ))}
 
-          <TabsContent value="upgrades">
-            <Card>
-              <CardHeader>
-                <CardTitle>{isRtl ? "سوق الترقيات المتقدم" : "Advanced Upgrades Market"}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                {upgrades.map((upgrade) => {
-                  const maxed = upgrade.nextCost === null;
-                  const cost = upgrade.nextCost ?? 0;
-                  const canBuy = !maxed && canAfford(cost, user.points);
-                  const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
-                  return (
-                    <div
-                      key={upgrade.id}
-                      className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/70 p-4"
-                    >
-                      <div className={cn("pointer-events-none absolute inset-0 bg-gradient-to-br", categoryStyle(upgrade.category))} />
-                      <div className="relative z-10">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2">
-                            <span className="grid h-10 w-10 place-items-center rounded-xl bg-background/70 text-xl">
-                              {upgrade.icon}
-                            </span>
-                            <div>
-                              <h4 className="font-bold">{i18n.language === "ar" ? upgrade.titleAr : upgrade.titleEn}</h4>
-                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                {upgrade.category}
-                              </p>
-                            </div>
-                          </div>
-                          <Badge variant="secondary">
-                            {t("upgrades.level")} {upgrade.currentLevel}/{upgrade.maxLevel}
-                          </Badge>
-                        </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {i18n.language === "ar" ? upgrade.descriptionAr : upgrade.descriptionEn}
-                        </p>
-                        <Progress value={levelPercent} className="mt-3 h-2.5" />
-                        <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
-                          <BoostTag label={isRtl ? "نقر" : "Tap"} value={upgrade.tapBoost} />
-                          <BoostTag label="PPH" value={upgrade.pphBoost} />
-                          <BoostTag label={isRtl ? "طاقة" : "Energy"} value={upgrade.energyBoost} />
-                          <BoostTag label={isRtl ? "أوتو" : "AutoTap"} value={upgrade.autoTapBoost} />
-                        </div>
-                        <div className="mt-3 flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold">
-                            {maxed ? t("upgrades.max") : `${t("upgrades.cost")}: ${formatNumber(cost)}`}
-                          </span>
-                          <Button size="sm" disabled={!canBuy} onClick={() => void handleBuyUpgrade(upgrade.id)}>
-                            {isRtl ? "ترقية بالنقاط" : "Upgrade with points"}
-                          </Button>
-                        </div>
-                        {upgrade.starsPrice ? (
-                          <div className="mt-2 flex items-center justify-between rounded-lg border border-yellow-300/25 bg-yellow-400/10 px-2 py-1.5 text-xs">
-                            <span className="flex items-center gap-1">
-                              <Star size={12} />
-                              {isRtl ? `شراء بالنجوم: ${upgrade.starsPrice}` : `Stars: ${upgrade.starsPrice}`}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() =>
-                                toast.info(
-                                  isRtl
-                                    ? "للشراء بالنجوم استخدم /stars داخل البوت."
-                                    : "Use /stars in bot to buy with Stars."
-                                )
-                              }
-                            >
-                              {isRtl ? "شراء بالنجوم" : "Buy with Stars"}
-                            </Button>
-                          </div>
-                        ) : null}
+        <motion.button
+          whileTap={{ scale: 0.95, y: 3 }}
+          type="button"
+          onClick={handleTap}
+          className={cn("vt-character-tap", tapAnimating && "animate-pulseTap")}
+        >
+          <span className="vt-character-backdrop" />
+          <span className="vt-character-head">
+            <span className="vt-eye" />
+            <span className="vt-eye" />
+          </span>
+          <span className="vt-character-body">
+            <span className="vt-character-core">VT</span>
+          </span>
+          <span className="vt-character-feet" />
+        </motion.button>
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          <MiniStat label={isRtl ? "النقر" : "Tap"} value={`+${user.tapPower}`} icon={<Target size={14} />} />
+          <MiniStat label={t("stats.combo")} value={`${user.comboMultiplier.toFixed(2)}x`} icon={<Flame size={14} />} />
+          <MiniStat label={t("stats.pph")} value={formatNumber(user.pph)} icon={<Clock3 size={14} />} />
+        </div>
+
+        <div className="vt-energy-card">
+          <div className="mb-2 flex items-center justify-between text-sm font-semibold">
+            <span className="flex items-center gap-1.5">
+              <Zap size={14} className="text-yellow-300" />
+              {t("stats.energy")}
+            </span>
+            <span>
+              {user.energy}/{user.maxEnergy}
+            </span>
+          </div>
+          <Progress value={energyPercent} className="h-2.5" />
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              className="flex-1"
+              size="sm"
+              variant="default"
+              disabled={turboCooldownSeconds > 0 || user.energy <= 0}
+              onClick={handleTurboTap}
+            >
+              {turboCooldownSeconds > 0
+                ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
+                : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
+            </Button>
+            <Button
+              className="flex-1"
+              size="sm"
+              variant="secondary"
+              disabled={pendingTapsDisplay === 0 || isSyncingTaps}
+              onClick={() => void flushTapQueue()}
+            >
+              {isSyncingTaps ? (isRtl ? "مزامنة..." : "Syncing...") : isRtl ? "مزامنة" : "Sync"}
+            </Button>
+          </div>
+          <p className="mt-2 text-center text-xs text-slate-300/80">
+            {isRtl
+              ? `نقرات قيد الإرسال: ${pendingTapsDisplay}`
+              : `Pending taps: ${pendingTapsDisplay}`}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+
+  const upgradesScreen = (
+    <Card className="vt-panel-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <TrendingUp size={18} className="text-amber-300" />
+          {isRtl ? "سوق الترقيات" : "Upgrades Market"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {upgrades
+          .slice()
+          .sort((a, b) => a.unlockLevel - b.unlockLevel || a.baseCost - b.baseCost)
+          .map((upgrade) => {
+            const maxed = upgrade.nextCost === null;
+            const cost = upgrade.nextCost ?? 0;
+            const canBuy = !maxed && canAfford(cost, user.points);
+            const lockedByLevel = playerLevel < upgrade.unlockLevel;
+            const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
+            return (
+              <div key={upgrade.id} className="vt-upgrade-card">
+                <div
+                  className={cn(
+                    "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-70",
+                    categoryStyle(upgrade.category)
+                  )}
+                />
+                <div className="relative z-10">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2">
+                      <div className="vt-upgrade-thumb">
+                        {upgrade.imageUrl ? (
+                          <img src={upgrade.imageUrl} alt={upgrade.titleEn} className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="text-xl">{upgrade.icon || "⚙️"}</span>
+                        )}
                       </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="tasks">
-            <Card>
-              <CardHeader>
-                <CardTitle>{t("tasks.title")}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-                    <Target size={15} className="text-primary" />
-                    Daily Cipher
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={t("tasks.cipherPlaceholder")}
-                      value={cipherInput}
-                      onChange={(event) => setCipherInput(event.target.value)}
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setCipherInput(
-                          `VT-${new Date().toISOString().slice(8, 10)}${new Date().toISOString().slice(5, 7)}-CIPHER`
-                        )
-                      }
-                    >
-                      Hint
-                    </Button>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{t("tasks.dailyCipherHint")}</p>
-                </div>
-
-                <div className="space-y-2">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/55 p-3"
-                    >
                       <div>
-                        <div className="font-semibold">{i18n.language === "ar" ? task.titleAr : task.titleEn}</div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                          <Badge variant="outline">{task.type}</Badge>
-                          <span>+{formatNumber(task.reward)}</span>
-                        </div>
+                        <h4 className="font-bold leading-tight">
+                          {isRtl ? upgrade.titleAr : upgrade.titleEn}
+                        </h4>
+                        <p className="mt-1 text-[11px] text-slate-300">{upgrade.category.toUpperCase()}</p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant={task.isClaimed ? "secondary" : "default"}
-                        disabled={task.isClaimed}
-                        onClick={() => void handleClaimTask(task)}
-                      >
-                        {task.isClaimed ? t("tasks.claimed") : t("tasks.claim")}
-                      </Button>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                    <Badge variant="secondary" className="text-xs">
+                      {isRtl ? "المستوى" : "Level"} {upgrade.currentLevel}/{upgrade.maxLevel}
+                    </Badge>
+                  </div>
 
-          <TabsContent value="referrals">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users size={16} />
-                  {t("referrals.title")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/20 p-3">
-                  <span className="text-sm text-muted-foreground">{t("referrals.code")}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold tracking-wide">{referral?.referralCode}</span>
+                  <p className="mt-2 text-xs text-slate-300/85">
+                    {isRtl ? upgrade.descriptionAr : upgrade.descriptionEn}
+                  </p>
+
+                  <Progress value={levelPercent} className="mt-3 h-2.5" />
+
+                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
+                    <BoostTag label={isRtl ? "قوة النقر" : "Tap"} value={upgrade.tapBoost} />
+                    <BoostTag label="PPH" value={upgrade.pphBoost} />
+                    <BoostTag label={isRtl ? "طاقة" : "Energy"} value={upgrade.energyBoost} />
+                    <BoostTag label={isRtl ? "أوتو" : "Auto"} value={upgrade.autoTapBoost} />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        navigator.clipboard.writeText(referral?.referralCode ?? "");
-                        toast.success("Copied");
-                      }}
+                      disabled={!canBuy || lockedByLevel || maxed}
+                      onClick={() => void handleBuyUpgrade(upgrade.id)}
                     >
-                      Copy
+                      {maxed
+                        ? isRtl
+                          ? "مكتملة"
+                          : "Max"
+                        : lockedByLevel
+                          ? `${isRtl ? "يتطلب مستوى" : "Need Lvl"} ${upgrade.unlockLevel}`
+                          : `${isRtl ? "ترقية" : "Upgrade"} ${formatNumber(cost)}`}
                     </Button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <Metric
-                    label={t("referrals.level1")}
-                    value={String(referralStats?.level1Count ?? referral?.directReferrals ?? 0)}
-                  />
-                  <Metric label={t("referrals.level2")} value={String(referralStats?.level2Count ?? 0)} />
-                  <Metric
-                    label={t("referrals.estimatedRewards")}
-                    value={formatNumber(referralStats?.estimatedRewards ?? 0)}
-                  />
-                </div>
-                <div className="rounded-xl border border-border/60 bg-card/45 p-3">
-                  <p className="mb-2 text-sm font-semibold">{isRtl ? "أفضل المحالين" : "Top referrals"}</p>
-                  <div className="space-y-1">
-                    {(referralStats?.referrals ?? []).slice(0, 5).map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-lg bg-secondary/25 px-2 py-1.5 text-sm">
-                        <span>{item.name}</span>
-                        <span className="font-semibold">{formatNumber(item.points)}</span>
+
+                    {upgrade.starsPrice ? (
+                      <Button size="sm" variant="outline" onClick={() => handleStarsUpgrade(upgrade)}>
+                        <Star size={13} className="me-1" />
+                        {isRtl ? `نجوم ${upgrade.starsPrice}` : `Stars ${upgrade.starsPrice}`}
+                      </Button>
+                    ) : (
+                      <div className="rounded-lg border border-border/40 bg-secondary/30 px-2 py-1 text-center text-xs text-slate-400">
+                        {isRtl ? "لا يوجد شراء نجوم" : "No stars offer"}
                       </div>
-                    ))}
-                    {(referralStats?.referrals?.length ?? 0) === 0 ? (
-                      <p className="text-xs text-muted-foreground">{isRtl ? "لا توجد بيانات حالياً." : "No data yet."}</p>
-                    ) : null}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="leaderboard">
-            <Card>
-              <CardHeader className="space-y-3">
-                <CardTitle className="flex items-center gap-2">
-                  <Trophy size={17} />
-                  {t("leaderboard.title")}
-                </CardTitle>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant={leaderboardType === "global" ? "default" : "outline"}
-                    onClick={() => setLeaderboardType("global")}
-                  >
-                    {t("leaderboard.global")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={leaderboardType === "weekly" ? "default" : "outline"}
-                    onClick={() => setLeaderboardType("weekly")}
-                  >
-                    {t("leaderboard.weekly")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={leaderboardType === "friends" ? "default" : "outline"}
-                    onClick={() => setLeaderboardType("friends")}
-                  >
-                    {t("leaderboard.friends")}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {leaderboard.map((item) => (
-                  <div
-                    key={`${item.id}-${item.rank}`}
-                    className={cn(
-                      "flex items-center justify-between rounded-xl border border-border/60 p-3",
-                      item.rank <= 3 && "bg-amber-500/10"
                     )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Badge>{rankMark(item.rank)}</Badge>
-                      <span className="font-semibold">{item.name}</span>
-                    </div>
-                    <span className="font-bold">{formatNumber(item.points)}</span>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
+                </div>
+              </div>
+            );
+          })}
+      </CardContent>
+    </Card>
+  );
 
-          <TabsContent value="wallet">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Wallet size={17} />
-                  {isRtl ? "المحفظة + متجر النجوم" : "Wallet + Stars Shop"}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <TonConnectButton className="!w-full" />
-                <div className="space-y-2 rounded-xl border border-border/60 bg-secondary/20 p-3">
-                  <Input
-                    placeholder={t("wallet.placeholder")}
-                    value={walletAddress}
-                    onChange={(event) => setWalletAddress(event.target.value)}
-                  />
-                  <Button className="w-full" onClick={() => void handleClaimAirdrop()}>
-                    {t("wallet.claim")}
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    {t("wallet.estimated")}: {formatNumber(Number(user.points) / 1000)}
-                  </p>
+  const tasksScreen = (
+    <Card className="vt-panel-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <ListChecks size={18} className="text-cyan-300" />
+          {t("tasks.title")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <Target size={15} className="text-primary" />
+            Daily Cipher
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder={t("tasks.cipherPlaceholder")}
+              value={cipherInput}
+              onChange={(event) => setCipherInput(event.target.value)}
+            />
+            <Button
+              variant="outline"
+              onClick={() =>
+                setCipherInput(
+                  `VT-${new Date().toISOString().slice(8, 10)}${new Date().toISOString().slice(5, 7)}-CIPHER`
+                )
+              }
+            >
+              Hint
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{t("tasks.dailyCipherHint")}</p>
+        </div>
+
+        <div className="space-y-2">
+          {tasks.map((task) => (
+            <div key={task.id} className="vt-task-row">
+              <div>
+                <div className="font-semibold">{isRtl ? task.titleAr : task.titleEn}</div>
+                <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline">{task.type}</Badge>
+                  <span>+{formatNumber(task.reward)}</span>
                 </div>
-                <div className="rounded-xl border border-yellow-300/30 bg-yellow-500/10 p-3 text-sm">
-                  <p className="font-semibold">{isRtl ? "الشراء بالنجوم" : "Buy with Stars"}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isRtl
-                      ? "استخدم أمر /stars داخل البوت لشراء ترقيات مدفوعة بالنجوم."
-                      : "Use /stars in bot to buy premium upgrades with Telegram Stars."}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </motion.div>
+              </div>
+              <Button
+                size="sm"
+                variant={task.isClaimed ? "secondary" : "default"}
+                disabled={task.isClaimed}
+                onClick={() => void handleClaimTask(task)}
+              >
+                {task.isClaimed ? t("tasks.claimed") : t("tasks.claim")}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const friendsScreen = (
+    <Card className="vt-panel-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Users size={18} className="text-violet-300" />
+          {t("referrals.title")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
+          <div className="text-xs text-slate-300">{t("referrals.code")}</div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="font-bold tracking-widest">{referral?.referralCode}</span>
+            <Button size="sm" variant="outline" onClick={copyReferralCode}>
+              {isRtl ? "نسخ" : "Copy"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Metric
+            label={t("referrals.level1")}
+            value={String(referralStats?.level1Count ?? referral?.directReferrals ?? 0)}
+          />
+          <Metric label={t("referrals.level2")} value={String(referralStats?.level2Count ?? 0)} />
+          <Metric
+            label={t("referrals.estimatedRewards")}
+            value={formatNumber(referralStats?.estimatedRewards ?? 0)}
+          />
+        </div>
+
+        <div className="rounded-xl border border-border/60 bg-card/45 p-3">
+          <p className="mb-2 text-sm font-semibold">{isRtl ? "أفضل الأصدقاء" : "Top Friends"}</p>
+          <div className="space-y-1">
+            {(referralStats?.referrals ?? []).slice(0, 10).map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between rounded-lg bg-secondary/25 px-2 py-1.5 text-sm"
+              >
+                <span>{item.name}</span>
+                <span className="font-semibold">{formatNumber(item.points)}</span>
+              </div>
+            ))}
+            {(referralStats?.referrals?.length ?? 0) === 0 ? (
+              <p className="text-xs text-muted-foreground">{isRtl ? "لا توجد بيانات حالياً." : "No data yet."}</p>
+            ) : null}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const leaderboardScreen = (
+    <Card className="vt-panel-card">
+      <CardHeader className="space-y-3">
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Trophy size={18} className="text-yellow-300" />
+          {t("leaderboard.title")}
+        </CardTitle>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={leaderboardType === "global" ? "default" : "outline"}
+            onClick={() => setLeaderboardType("global")}
+          >
+            {t("leaderboard.global")}
+          </Button>
+          <Button
+            size="sm"
+            variant={leaderboardType === "weekly" ? "default" : "outline"}
+            onClick={() => setLeaderboardType("weekly")}
+          >
+            {t("leaderboard.weekly")}
+          </Button>
+          <Button
+            size="sm"
+            variant={leaderboardType === "friends" ? "default" : "outline"}
+            onClick={() => setLeaderboardType("friends")}
+          >
+            {t("leaderboard.friends")}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {leaderboard.map((item) => (
+          <div
+            key={`${item.id}-${item.rank}`}
+            className={cn(
+              "flex items-center justify-between rounded-xl border border-border/60 p-3",
+              item.rank <= 3 && "bg-amber-500/10"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <Badge>{rankMark(item.rank)}</Badge>
+              <span className="font-semibold">{item.name}</span>
+            </div>
+            <span className="font-bold">{formatNumber(item.points)}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+
+  const settingsScreen = (
+    <Card className="vt-panel-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Settings size={18} className="text-cyan-300" />
+          {isRtl ? "الإعدادات والتحكم" : "Settings & Control"}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <SettingTile
+          icon={<Globe size={16} />}
+          title={isRtl ? "اللغة" : "Language"}
+          description={isRtl ? "تغيير لغة الواجهة" : "Switch interface language"}
+        >
+          <select
+            className="h-9 w-full rounded-lg border border-border bg-background/90 px-3 text-sm"
+            value={i18n.language}
+            onChange={(event) => void i18n.changeLanguage(event.target.value)}
+          >
+            {SUPPORTED_LANGS.map((lang) => (
+              <option key={lang} value={lang}>
+                {lang.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </SettingTile>
+
+        <SettingTile
+          icon={<Wallet size={16} />}
+          title={isRtl ? "المحفظة" : "Wallet"}
+          description={isRtl ? "ربط TON وطلب الأيردروب" : "Connect TON and request airdrop"}
+        >
+          <div className="space-y-2">
+            <TonConnectButton className="!w-full" />
+            <Input
+              placeholder={t("wallet.placeholder")}
+              value={walletAddress}
+              onChange={(event) => setWalletAddress(event.target.value)}
+            />
+            <Button className="w-full" onClick={() => void handleClaimAirdrop()}>
+              {t("wallet.claim")}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              {t("wallet.estimated")}: {formatNumber(Number(user.points) / 1000)}
+            </p>
+          </div>
+        </SettingTile>
+
+        <SettingTile
+          icon={<Bot size={16} />}
+          title={isRtl ? "الحساب" : "Account"}
+          description={isRtl ? "بيانات الملف والاتصال" : "Profile and connection status"}
+        >
+          <div className="grid grid-cols-2 gap-2">
+            <MiniStat label={isRtl ? "الاسم" : "Name"} value={displayName} icon={<Crown size={14} />} />
+            <MiniStat
+              label={isRtl ? "الاتصال" : "Status"}
+              value={t("common.connected")}
+              icon={<Sparkles size={14} />}
+            />
+            <MiniStat
+              label={isRtl ? "النقاط" : "Points"}
+              value={formatNumber(user.points)}
+              icon={<Coins size={14} />}
+            />
+            <MiniStat
+              label={isRtl ? "نجوم مصروفة" : "Stars spent"}
+              value={formatNumber(user.starsSpent)}
+              icon={<Star size={14} />}
+            />
+          </div>
+        </SettingTile>
+
+        <div className="rounded-xl border border-amber-300/35 bg-amber-500/10 p-3 text-xs text-amber-100">
+          {isRtl
+            ? "شراء النجوم يتم من بطاقات الترقيات مباشرة. اضغط زر النجوم داخل أي ترقية مدعومة."
+            : "Stars upgrades are available directly in upgrade cards. Tap the Stars button on supported cards."}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const currentScreen =
+    activeTab === "home"
+      ? homeScreen
+      : activeTab === "upgrades"
+        ? upgradesScreen
+        : activeTab === "tasks"
+          ? tasksScreen
+          : activeTab === "friends"
+            ? friendsScreen
+            : activeTab === "leaderboard"
+              ? leaderboardScreen
+              : settingsScreen;
+
+  return (
+    <div className="vt-shell">
+      <div className="vt-grid-overlay pointer-events-none absolute inset-0 -z-10" />
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="space-y-3"
+        >
+          {currentScreen}
+        </motion.div>
+      </AnimatePresence>
+
+      <nav className="vt-bottom-dock">
+        <div className="vt-bottom-row">
+          {NAV_ITEMS.map((item) => {
+            const active = activeTab === item.key;
+            const label = isRtl ? item.labelAr : item.labelEn;
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={cn("vt-bottom-item", active && "is-active")}
+                onClick={() => setActiveTab(item.key)}
+              >
+                <Icon size={18} className="opacity-90" />
+                <span>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="vt-bottom-indicator-wrap">
+          <span
+            className="vt-bottom-indicator"
+            style={{
+              width: `calc((100% - 16px) / ${NAV_ITEMS.length})`,
+              transform: `translateX(calc(${navActiveIndex} * 100%))`
+            }}
+          />
+        </div>
+      </nav>
     </div>
   );
 }
 
-function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+function MiniStat({
+  label,
+  value,
+  icon
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
   return (
-    <div className="rounded-xl border border-border/60 bg-secondary/35 p-3">
-      <div className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
+    <div className="rounded-xl border border-border/70 bg-secondary/35 p-2.5">
+      <div className="mb-1 flex items-center gap-1 text-[11px] text-slate-300/90">
         {icon}
         <span>{label}</span>
       </div>
-      <div className="text-base font-bold">{value}</div>
+      <div className="truncate text-sm font-bold">{value}</div>
     </div>
   );
 }
@@ -972,7 +1146,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border/60 bg-secondary/30 p-3 text-center">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-lg font-bold">{value}</div>
+      <div className="text-base font-bold">{value}</div>
     </div>
   );
 }
@@ -986,3 +1160,27 @@ function BoostTag({ label, value }: { label: string; value: number }) {
   );
 }
 
+function SettingTile({
+  icon,
+  title,
+  description,
+  children
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/20 text-primary">{icon}</span>
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}

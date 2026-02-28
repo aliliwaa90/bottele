@@ -3,6 +3,8 @@
 import { env } from "./config/env.js";
 import {
   claimTask,
+  confirmStarsPayment,
+  getGameState,
   getLeaderboard,
   getProfile,
   getReferrals,
@@ -27,6 +29,7 @@ const enText = {
   leaderboard: "🏆 Leaderboard",
   tasks: "✅ Tasks",
   referrals: "👥 Referrals",
+  starsShop: "⭐ Stars Shop",
   language: "🌐 Language",
   helpButton: "❓ Help",
   chooseLanguage: "Choose language:",
@@ -42,19 +45,25 @@ const enText = {
   energyLabel: "Energy",
   comboLabel: "Combo",
   pphLabel: "PPH",
+  autoTapLabel: "Auto Tap/H",
   tapPowerLabel: "Tap Power",
   totalTapsLabel: "Total Taps",
   referralCodeLabel: "Referral Code",
   level1Label: "Level 1",
   level2Label: "Level 2",
   estimatedRewardsLabel: "Estimated Rewards",
+  starsTitle: "Stars upgrades",
+  starsEmpty: "No star upgrades available now.",
+  buyStars: "Buy with Stars",
+  starsPurchased: "Stars payment confirmed and reward applied.",
+  paymentFailed: "Payment verification failed, please contact support.",
   loginSetupError:
     "Bot login failed due to server config. Check backend settings and redeploy backend + bot.",
   serverDownError: "Server is not responding. Try again in a moment.",
   invalidTask: "Invalid task.",
   actionFailed: "Action failed.",
   help:
-    "Commands:\\n/start Start bot\\n/menu Main menu\\n/profile Your stats\\n/top Leaderboard\\n/tasks Tasks\\n/ref Referrals\\n/lang Change language",
+    "Commands:\\n/start Start bot\\n/menu Main menu\\n/profile Your stats\\n/top Leaderboard\\n/tasks Tasks\\n/ref Referrals\\n/stars Stars shop\\n/lang Change language",
   fastStartReady: "Ready. Your account is being prepared in the background.",
   error: "Something went wrong. Try again."
 };
@@ -72,6 +81,7 @@ const text: Record<Lang, BotText> = {
     leaderboard: "🏆 الصدارة",
     tasks: "✅ المهام",
     referrals: "👥 الإحالات",
+    starsShop: "⭐ متجر النجوم",
     language: "🌐 اللغة",
     helpButton: "❓ مساعدة",
     chooseLanguage: "اختر اللغة:",
@@ -87,19 +97,25 @@ const text: Record<Lang, BotText> = {
     energyLabel: "الطاقة",
     comboLabel: "الكومبو",
     pphLabel: "الربح بالساعة",
+    autoTapLabel: "النقر التلقائي/ساعة",
     tapPowerLabel: "قوة النقر",
     totalTapsLabel: "إجمالي النقرات",
     referralCodeLabel: "كود الإحالة",
     level1Label: "المستوى الأول",
     level2Label: "المستوى الثاني",
     estimatedRewardsLabel: "المكافآت التقديرية",
+    starsTitle: "ترقيات النجوم",
+    starsEmpty: "لا توجد ترقيات نجوم متاحة الآن.",
+    buyStars: "شراء بالنجوم",
+    starsPurchased: "تم تأكيد الدفع بالنجوم وتطبيق المكافأة.",
+    paymentFailed: "تعذر تأكيد الدفع، تواصل مع الدعم.",
     loginSetupError:
       "تعذر تسجيل الدخول من البوت. تحقق من إعدادات الخادم ثم أعد نشر backend و bot.",
     serverDownError: "الخادم لا يستجيب الآن، حاول مرة أخرى بعد قليل.",
     invalidTask: "معرّف المهمة غير صالح.",
     actionFailed: "فشلت العملية.",
     help:
-      "الأوامر:\\n/start تشغيل البوت\\n/menu القائمة الرئيسية\\n/profile ملفك\\n/top الصدارة\\n/tasks المهام\\n/ref الإحالات\\n/lang تغيير اللغة",
+      "الأوامر:\\n/start تشغيل البوت\\n/menu القائمة الرئيسية\\n/profile ملفك\\n/top الصدارة\\n/tasks المهام\\n/ref الإحالات\\n/stars متجر النجوم\\n/lang تغيير اللغة",
     fastStartReady: "تم التجهيز. يتم تهيئة حسابك بالخلفية.",
     error: "حدث خطأ، حاول مرة أخرى."
   },
@@ -134,6 +150,8 @@ function mainMenu(userId: number) {
     .text(t(userId, "leaderboard"), "leaderboard")
     .row()
     .text(t(userId, "referrals"), "referrals")
+    .text(t(userId, "starsShop"), "stars")
+    .row()
     .text(t(userId, "language"), "language")
     .text(t(userId, "helpButton"), "help");
 }
@@ -189,6 +207,7 @@ async function sendProfile(user: TelegramUserPayload, reply: (message: string) =
       `• ${t(user.id, "energyLabel")}: ${data.user.energy}/${data.user.maxEnergy}\\n` +
       `• ${t(user.id, "comboLabel")}: x${data.user.comboMultiplier.toFixed(2)}\\n` +
       `• ${t(user.id, "pphLabel")}: ${data.user.pph}\\n` +
+      `• ${t(user.id, "autoTapLabel")}: ${data.user.autoTapPerHour}\\n` +
       `• ${t(user.id, "tapPowerLabel")}: ${data.user.tapPower}\\n` +
       `• ${t(user.id, "totalTapsLabel")}: ${data.user.totalTaps}\\n` +
       `• ${t(user.id, "referralCodeLabel")}: ${data.user.referralCode}`
@@ -240,11 +259,47 @@ async function sendReferrals(user: TelegramUserPayload, reply: (message: string)
   );
 }
 
+async function sendStarsStore(
+  user: TelegramUserPayload,
+  reply: (message: string, keyboard?: InlineKeyboard) => Promise<unknown>
+) {
+  userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
+  const lang = userLangStore.get(user.id) ?? DEFAULT_LANG;
+  const state = await getGameState(user);
+  const starOffers = state.upgrades
+    .filter((upgrade) => typeof upgrade.starsPrice === "number" && upgrade.starsPrice > 0)
+    .sort((a, b) => (a.starsPrice ?? 0) - (b.starsPrice ?? 0))
+    .slice(0, 8);
+
+  if (starOffers.length === 0) {
+    await reply(t(user.id, "starsEmpty"));
+    return;
+  }
+
+  const keyboard = new InlineKeyboard();
+  for (const offer of starOffers) {
+    const starsPrice = offer.starsPrice ?? 0;
+    const title = lang === "ar" ? offer.titleAr : offer.titleEn;
+    keyboard.text(`${title} ⭐${starsPrice}`, `starsbuy:${offer.key}`);
+    keyboard.row();
+  }
+
+  const lines = starOffers.map((offer) => {
+    const title = lang === "ar" ? offer.titleAr : offer.titleEn;
+    const starsPrice = offer.starsPrice ?? 0;
+    return `• ${title} — ⭐${starsPrice} (${offer.currentLevel}/${offer.maxLevel})`;
+  });
+
+  await reply(`⭐ ${t(user.id, "starsTitle")}\\n${lines.join("\\n")}`, keyboard);
+}
+
 bot.command("start", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
 
-  const referralCode = typeof ctx.match === "string" && ctx.match.trim() ? ctx.match.trim() : undefined;
+  const startPayload = typeof ctx.match === "string" && ctx.match.trim() ? ctx.match.trim() : undefined;
+  const starsUpgradeKey = startPayload?.startsWith("buy_") ? startPayload.slice(4) : undefined;
+  const referralCode = starsUpgradeKey ? undefined : startPayload;
   const lang = detectLang(user.language_code);
   userLangStore.set(user.id, lang);
 
@@ -256,6 +311,37 @@ bot.command("start", async (ctx) => {
     void loginWithTelegram(user, referralCode).catch((error) => {
       console.error(`background login failed for ${user.id}:`, error);
     });
+
+    if (starsUpgradeKey) {
+      try {
+        const state = await getGameState(user);
+        const offer = state.upgrades.find((upgrade) => upgrade.key === starsUpgradeKey);
+        if (!offer || !offer.starsPrice || offer.starsPrice <= 0) {
+          await ctx.reply(t(user.id, "starsEmpty"), { reply_markup: mainMenu(user.id) });
+          return;
+        }
+
+        const currentLang = userLangStore.get(user.id) ?? DEFAULT_LANG;
+        const title = currentLang === "ar" ? offer.titleAr : offer.titleEn;
+        const price = offer.starsPrice;
+        const payload = JSON.stringify({ type: "upgrade", upgradeKey: offer.key });
+
+        await ctx.replyWithInvoice(
+          `${title} • VaultTap`,
+          currentLang === "ar"
+            ? `شراء ترقية ${title} باستخدام نجوم تيليجرام.`
+            : `Purchase ${title} with Telegram Stars.`,
+          payload,
+          "XTR",
+          [{ label: t(user.id, "buyStars"), amount: price }],
+          {
+            start_parameter: `stars_${offer.key}`
+          }
+        );
+      } catch (error) {
+        await ctx.reply(humanError(user.id, error));
+      }
+    }
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
   }
@@ -324,6 +410,19 @@ bot.command("ref", async (ctx) => {
   }
 });
 
+bot.command("stars", async (ctx) => {
+  const user = ctx.from;
+  if (!user) return;
+  try {
+    await ctx.replyWithChatAction("typing");
+    await sendStarsStore(user, (message, keyboard) =>
+      ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) })
+    );
+  } catch (error) {
+    await ctx.reply(humanError(user.id, error));
+  }
+});
+
 bot.command("lang", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
@@ -374,6 +473,18 @@ bot.callbackQuery("referrals", async (ctx) => {
   }
 });
 
+bot.callbackQuery("stars", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  try {
+    await ctx.replyWithChatAction("typing");
+    await sendStarsStore(ctx.from, (message, keyboard) =>
+      ctx.reply(message, { reply_markup: keyboard ?? mainMenu(ctx.from.id) })
+    );
+  } catch (error) {
+    await ctx.reply(humanError(ctx.from.id, error));
+  }
+});
+
 bot.callbackQuery("language", async (ctx) => {
   await ctx.answerCallbackQuery();
   await ctx.reply(t(ctx.from.id, "chooseLanguage"), {
@@ -407,6 +518,70 @@ bot.callbackQuery(/^claim:(.+)$/, async (ctx) => {
   }
 });
 
+bot.callbackQuery(/^starsbuy:(.+)$/, async (ctx) => {
+  const upgradeKey = ctx.match[1];
+  if (!upgradeKey) {
+    await ctx.answerCallbackQuery({ text: t(ctx.from.id, "actionFailed") });
+    return;
+  }
+
+  try {
+    const state = await getGameState(ctx.from);
+    const lang = userLangStore.get(ctx.from.id) ?? DEFAULT_LANG;
+    const offer = state.upgrades.find((upgrade) => upgrade.key === upgradeKey);
+    if (!offer || !offer.starsPrice || offer.starsPrice <= 0) {
+      await ctx.answerCallbackQuery({ text: t(ctx.from.id, "starsEmpty") });
+      return;
+    }
+
+    const title = lang === "ar" ? offer.titleAr : offer.titleEn;
+    const price = offer.starsPrice;
+    const payload = JSON.stringify({ type: "upgrade", upgradeKey: offer.key });
+
+    await ctx.replyWithInvoice(
+      `${title} • VaultTap`,
+      lang === "ar"
+        ? `شراء ترقية ${title} باستخدام نجوم تيليجرام.`
+        : `Purchase ${title} with Telegram Stars.`,
+      payload,
+      "XTR",
+      [{ label: t(ctx.from.id, "buyStars"), amount: price }],
+      {
+        start_parameter: `stars_${offer.key}`
+      }
+    );
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    await ctx.answerCallbackQuery({ text: t(ctx.from.id, "actionFailed") });
+    await ctx.reply(humanError(ctx.from.id, error));
+  }
+});
+
+bot.on("pre_checkout_query", async (ctx) => {
+  await ctx.answerPreCheckoutQuery(true);
+});
+
+bot.on("message:successful_payment", async (ctx) => {
+  const payment = ctx.message.successful_payment;
+  try {
+    await confirmStarsPayment({
+      telegramId: ctx.from.id,
+      telegramPaymentChargeId: payment.telegram_payment_charge_id,
+      providerPaymentChargeId: payment.provider_payment_charge_id,
+      payload: payment.invoice_payload,
+      totalAmount: payment.total_amount
+    });
+    await ctx.reply(t(ctx.from.id, "starsPurchased"), {
+      reply_markup: mainMenu(ctx.from.id)
+    });
+  } catch (error) {
+    console.error("Stars confirmation failed:", error);
+    await ctx.reply(t(ctx.from.id, "paymentFailed"), {
+      reply_markup: mainMenu(ctx.from.id)
+    });
+  }
+});
+
 bot.callbackQuery(/^lang:(.+)$/, async (ctx) => {
   const requested = ctx.match[1] as Lang;
   if (!LANGS.includes(requested)) {
@@ -432,6 +607,7 @@ const BOT_COMMANDS = [
   { command: "top", description: "عرض قائمة الصدارة" },
   { command: "tasks", description: "عرض المهام وتحصيلها" },
   { command: "ref", description: "عرض أداء الإحالات" },
+  { command: "stars", description: "شراء الترقيات بالنجوم" },
   { command: "lang", description: "تغيير اللغة" }
 ];
 let commandsConfigured = false;
