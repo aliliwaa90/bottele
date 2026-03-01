@@ -3,9 +3,11 @@ import ExcelJS from "exceljs";
 import { StatusCodes } from "http-status-codes";
 import { z } from "zod";
 
+import { env } from "../config/env.js";
 import { prisma } from "../lib/prisma.js";
 import { getSocket } from "../lib/socket.js";
 import { requireAdmin, requireAuth } from "../middleware/auth.js";
+import { ensureCatalogSeeded } from "../services/catalog.js";
 import { serializeTask, serializeUpgrade, serializeUser } from "../utils/serializers.js";
 import { validateBody, validateQuery } from "../utils/validate.js";
 
@@ -72,9 +74,67 @@ const toggleEventSchema = z.object({
   isActive: z.boolean()
 });
 
+async function sendTelegramBroadcast(text: string, target: "all" | "active") {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    return {
+      delivered: 0,
+      failed: 0,
+      skipped: true
+    };
+  }
+
+  const activeFrom = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const where =
+    target === "active"
+      ? {
+          OR: [
+            { lastTapAt: { gte: activeFrom } },
+            { lastProfitAt: { gte: activeFrom } }
+          ]
+        }
+      : undefined;
+
+  const users = await prisma.user.findMany({
+    where,
+    select: { telegramId: true },
+    take: 20000
+  });
+
+  let delivered = 0;
+  let failed = 0;
+
+  for (const user of users) {
+    try {
+      const response = await fetch(
+        `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: user.telegramId.toString(),
+            text,
+            disable_web_page_preview: true
+          })
+        }
+      );
+
+      if (response.ok) {
+        delivered += 1;
+      } else {
+        failed += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return { delivered, failed, skipped: false };
+}
+
 router.use(requireAuth, requireAdmin);
 
 router.get("/dashboard", async (_req, res) => {
+  await ensureCatalogSeeded();
   const [totalUsers, activeTodayEvents, totalPointsAgg, totalStarsSpentAgg, topUsers, snapshotsCount, activeEvents] =
     await Promise.all([
     prisma.user.count(),
@@ -187,6 +247,7 @@ router.post("/tasks/upsert", validateBody(upsertTaskSchema), async (req, res) =>
 });
 
 router.get("/tasks", async (_req, res) => {
+  await ensureCatalogSeeded();
   const tasks = await prisma.task.findMany({
     orderBy: [{ type: "asc" }, { createdAt: "desc" }]
   });
@@ -195,6 +256,7 @@ router.get("/tasks", async (_req, res) => {
 });
 
 router.get("/upgrades", async (_req, res) => {
+  await ensureCatalogSeeded();
   const upgrades = await prisma.upgrade.findMany({
     orderBy: [{ category: "asc" }, { baseCost: "asc" }]
   });
@@ -330,9 +392,12 @@ router.post("/events/:eventId/toggle", validateBody(toggleEventSchema), async (r
 router.post("/notify", validateBody(messageSchema), async (req, res) => {
   const payload = req.body as z.infer<typeof messageSchema>;
   getSocket().emit("mass:notification", payload);
+  const telegramMessage = `📣 ${payload.title}\n\n${payload.body}`;
+  const delivery = await sendTelegramBroadcast(telegramMessage, payload.target);
   res.status(StatusCodes.OK).json({
-    message: "Notification dispatched through socket broadcast.",
-    payload
+    message: "Notification dispatched.",
+    payload,
+    delivery
   });
 });
 

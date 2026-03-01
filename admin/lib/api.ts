@@ -22,9 +22,10 @@ export const adminApi = {
       totalUsers: number;
       activeToday: number;
       totalPoints: string;
+      totalStarsSpent: number;
       snapshotsCount: number;
       activeEvents: number;
-      topUsers: Array<{ id: string; name: string; points: string; pph: number }>;
+      topUsers: Array<{ id: string; name: string; points: string; pph: number; autoTapPerHour: number }>;
     }>("/admin/dashboard"),
   users: (page = 1, q = "") =>
     request<{
@@ -43,6 +44,34 @@ export const adminApi = {
   tasks: () => request<Array<{ id: string; key: string; titleAr: string; titleEn: string; reward: number; type: string }>>("/admin/tasks"),
   upsertTask: (payload: unknown) =>
     request<{ message: string }>("/admin/tasks/upsert", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  upgrades: () =>
+    request<
+      Array<{
+        id: string;
+        key: string;
+        titleAr: string;
+        titleEn: string;
+        descriptionAr: string;
+        descriptionEn: string;
+        icon: string;
+        imageUrl?: string | null;
+        category: string;
+        baseCost: number;
+        maxLevel: number;
+        difficulty: number;
+        unlockLevel: number;
+        starsPrice?: number | null;
+        pphBoost: number;
+        tapBoost: number;
+        energyBoost: number;
+        autoTapBoost: number;
+      }>
+    >("/admin/upgrades"),
+  upsertUpgrade: (payload: unknown) =>
+    request<{ message: string }>("/admin/upgrades/upsert", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
@@ -70,7 +99,7 @@ export const adminApi = {
       body: JSON.stringify({ isActive })
     }),
   notify: (payload: { title: string; body: string; target: "all" | "active" }) =>
-    request<{ message: string }>("/admin/notify", {
+    request<{ message: string; delivery?: { delivered: number; failed: number; skipped: boolean } }>("/admin/notify", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

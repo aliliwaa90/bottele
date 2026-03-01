@@ -9,7 +9,8 @@ export type TelegramUserPayload = {
 };
 
 const tokenStore = new Map<number, string>();
-const BACKEND_REQUEST_TIMEOUT_MS = 7000;
+const loginPromiseStore = new Map<number, Promise<string>>();
+const BACKEND_REQUEST_TIMEOUT_MS = 5000;
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers ?? {});
@@ -46,7 +47,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export async function loginWithTelegram(user: TelegramUserPayload, referralCode?: string): Promise<string> {
-  const data = await request<{ token: string }>("/auth/telegram", {
+  const pending = loginPromiseStore.get(user.id);
+  if (pending) {
+    return pending;
+  }
+
+  const requestPromise = request<{ token: string }>("/auth/telegram", {
     method: "POST",
     body: JSON.stringify({
       telegramId: user.id,
@@ -56,10 +62,18 @@ export async function loginWithTelegram(user: TelegramUserPayload, referralCode?
       language: user.language_code ?? env.DEFAULT_LANGUAGE,
       referralCode
     })
-  });
+  })
+    .then((data) => {
+      tokenStore.set(user.id, data.token);
+      return data.token;
+    })
+    .finally(() => {
+      loginPromiseStore.delete(user.id);
+    });
 
-  tokenStore.set(user.id, data.token);
-  return data.token;
+  loginPromiseStore.set(user.id, requestPromise);
+
+  return requestPromise;
 }
 
 async function ensureToken(user: TelegramUserPayload): Promise<string> {
@@ -83,6 +97,7 @@ export async function getProfile(user: TelegramUserPayload) {
       maxEnergy: number;
       comboMultiplier: number;
       pph: number;
+      autoTapPerHour: number;
       referralCode: string;
       tapPower: number;
       totalTaps: string;
@@ -128,6 +143,8 @@ export async function claimTask(user: TelegramUserPayload, taskId: string, ciphe
 export async function getReferrals(user: TelegramUserPayload) {
   const token = await ensureToken(user);
   return request<{
+    referralCode: string;
+    rewardPerInvite: number;
     level1Count: number;
     level2Count: number;
     estimatedRewards: number;

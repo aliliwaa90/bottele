@@ -12,6 +12,7 @@ const emptyToUndefined = (value: unknown) => {
 
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().min(20),
+  TELEGRAM_BOT_USERNAME: z.string().optional().default(""),
   TELEGRAM_WEBAPP_URL: z.preprocess(emptyToUndefined, z.string().url().default("https://t.me")),
   BACKEND_URL: z.preprocess(emptyToUndefined, z.string().url().default("http://localhost:4000")),
   BOT_API_KEY: z.string().optional().default(""),

@@ -122,7 +122,7 @@ router.post("/telegram", validateBody(loginSchema), async (req, res) => {
       await prisma.$transaction([
         prisma.user.update({
           where: { id: referredById },
-          data: { points: { increment: BigInt(2000) } }
+          data: { points: { increment: BigInt(1000) } }
         }),
         prisma.user.update({
           where: { id: user.id },

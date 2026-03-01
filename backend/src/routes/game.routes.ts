@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { getSocket } from "../lib/socket.js";
 import { requireAuth } from "../middleware/auth.js";
+import { ensureCatalogSeeded } from "../services/catalog.js";
 import { calculateCombo, calculateUpgradeCost, pointsToJetton, refillEnergy } from "../utils/game.js";
 import { serializeUpgrade, serializeUser } from "../utils/serializers.js";
 import { validateBody, validateQuery } from "../utils/validate.js";
@@ -83,6 +84,7 @@ async function emitLeaderboardUpdate() {
 router.use(requireAuth);
 
 router.get("/me", async (req, res) => {
+  await ensureCatalogSeeded();
   const userId = req.auth!.userId;
   const user = await syncEconomy(userId);
   if (!user) {
@@ -353,6 +355,10 @@ router.get("/leaderboard", validateQuery(leaderboardSchema), async (req, res) =>
 
 router.get("/referrals", async (req, res) => {
   const userId = req.auth!.userId;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { referralCode: true }
+  });
   const level1 = await prisma.user.findMany({
     where: { referredById: userId },
     select: { id: true, username: true, firstName: true, points: true, createdAt: true }
@@ -365,9 +371,11 @@ router.get("/referrals", async (req, res) => {
     : 0;
 
   res.json({
+    referralCode: user?.referralCode ?? "",
+    rewardPerInvite: 1000,
     level1Count: level1.length,
     level2Count,
-    estimatedRewards: level1.length * 2000 + level2Count * 500,
+    estimatedRewards: level1.length * 1000 + level2Count * 250,
     referrals: level1.map((item) => ({
       id: item.id,
       name: item.username || item.firstName || "VaultTaper",

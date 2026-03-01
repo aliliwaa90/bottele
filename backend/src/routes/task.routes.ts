@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
+import { ensureCatalogSeeded } from "../services/catalog.js";
 import { serializeTask } from "../utils/serializers.js";
 import { validateBody } from "../utils/validate.js";
 
@@ -27,6 +28,7 @@ function getTodayCipher(): string {
 router.use(requireAuth);
 
 router.get("/", async (req, res) => {
+  await ensureCatalogSeeded();
   const userId = req.auth!.userId;
   const [tasks, claims] = await Promise.all([
     prisma.task.findMany({

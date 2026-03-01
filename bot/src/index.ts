@@ -22,8 +22,8 @@ const DEFAULT_LANG: Lang = LANGS.includes(env.DEFAULT_LANGUAGE as Lang)
 
 const enText = {
   welcome:
-    "Welcome to VaultTap!\\nTap, upgrade, complete tasks, and grow your balance faster every day.",
-  menuHint: "Quick actions are ready below. Open the mini app and start now.",
+    "Welcome to VaultTap!\\nA fast Tap-to-Earn bot with real upgrades, referrals, and Telegram Stars.",
+  menuHint: "Open the mini app now and start building your rank.",
   openApp: "🚀 Open VaultTap Mini App",
   profile: "👤 Profile",
   leaderboard: "🏆 Leaderboard",
@@ -51,7 +51,10 @@ const enText = {
   referralCodeLabel: "Referral Code",
   level1Label: "Level 1",
   level2Label: "Level 2",
+  rewardPerInviteLabel: "Reward/Invite",
   estimatedRewardsLabel: "Estimated Rewards",
+  inviteButton: "🔗 Share Invite Link",
+  inviteFallback: "Set TELEGRAM_BOT_USERNAME to generate invite links.",
   starsTitle: "Stars upgrades",
   starsEmpty: "No star upgrades available now.",
   buyStars: "Buy with Stars",
@@ -63,7 +66,7 @@ const enText = {
   invalidTask: "Invalid task.",
   actionFailed: "Action failed.",
   help:
-    "Commands:\\n/start Start bot\\n/menu Main menu\\n/profile Your stats\\n/top Leaderboard\\n/tasks Tasks\\n/ref Referrals\\n/stars Stars shop\\n/lang Change language",
+    "Commands:\\n/start Start bot\\n/menu Main menu\\n/profile Your stats\\n/top Leaderboard\\n/tasks Tasks\\n/ref Referrals\\n/invite Invite link\\n/stars Stars shop\\n/lang Change language",
   fastStartReady: "Ready. Your account is being prepared in the background.",
   error: "Something went wrong. Try again."
 };
@@ -74,8 +77,8 @@ type BotText = Record<TextKey, string>;
 const text: Record<Lang, BotText> = {
   ar: {
     welcome:
-      "هلا وسهلا بك في VaultTap 🚀\\nاضغط وطور حسابك وأنجز المهام واجمع النقاط بسرعة أكبر كل يوم.",
-    menuHint: "الأزرار السريعة جاهزة بالأسفل. افتح الميني آب وابدأ اللعب الآن.",
+      "هلا وسهلا بك في VaultTap 🚀\\nبوت نقر احترافي سريع مع ترقية فعلية، إحالات، وشراء بالنجوم.",
+    menuHint: "افتح الميني آب الآن وابدأ بناء مركزك في الصدارة.",
     openApp: "🚀 فتح تطبيق VaultTap",
     profile: "👤 ملفي",
     leaderboard: "🏆 الصدارة",
@@ -103,7 +106,10 @@ const text: Record<Lang, BotText> = {
     referralCodeLabel: "كود الإحالة",
     level1Label: "المستوى الأول",
     level2Label: "المستوى الثاني",
+    rewardPerInviteLabel: "مكافأة كل دعوة",
     estimatedRewardsLabel: "المكافآت التقديرية",
+    inviteButton: "🔗 مشاركة رابط الدعوة",
+    inviteFallback: "أضف TELEGRAM_BOT_USERNAME لتفعيل رابط الدعوة.",
     starsTitle: "ترقيات النجوم",
     starsEmpty: "لا توجد ترقيات نجوم متاحة الآن.",
     buyStars: "شراء بالنجوم",
@@ -115,7 +121,7 @@ const text: Record<Lang, BotText> = {
     invalidTask: "معرّف المهمة غير صالح.",
     actionFailed: "فشلت العملية.",
     help:
-      "الأوامر:\\n/start تشغيل البوت\\n/menu القائمة الرئيسية\\n/profile ملفك\\n/top الصدارة\\n/tasks المهام\\n/ref الإحالات\\n/stars متجر النجوم\\n/lang تغيير اللغة",
+      "الأوامر:\\n/start تشغيل البوت\\n/menu القائمة الرئيسية\\n/profile ملفك\\n/top الصدارة\\n/tasks المهام\\n/ref الإحالات\\n/invite رابط الدعوة\\n/stars متجر النجوم\\n/lang تغيير اللغة",
     fastStartReady: "تم التجهيز. يتم تهيئة حسابك بالخلفية.",
     error: "حدث خطأ، حاول مرة أخرى."
   },
@@ -150,6 +156,8 @@ function mainMenu(userId: number) {
     .text(t(userId, "leaderboard"), "leaderboard")
     .row()
     .text(t(userId, "referrals"), "referrals")
+    .text(t(userId, "inviteButton"), "referrals")
+    .row()
     .text(t(userId, "starsShop"), "stars")
     .row()
     .text(t(userId, "language"), "language")
@@ -194,6 +202,14 @@ function rankPrefix(rank: number): string {
   if (rank === 2) return "🥈";
   if (rank === 3) return "🥉";
   return `${rank}.`;
+}
+
+function buildInviteLink(referralCode: string): string {
+  const botUsername = env.TELEGRAM_BOT_USERNAME.replace("@", "").trim();
+  if (!botUsername || !referralCode) {
+    return "";
+  }
+  return `https://t.me/${botUsername}?start=${encodeURIComponent(referralCode)}`;
 }
 
 const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
@@ -248,14 +264,28 @@ async function sendTasks(user: TelegramUserPayload, reply: (message: string, key
   await reply(`🎯 ${t(user.id, "tasksTitle")}\\n${lines.join("\\n")}`, keyboard);
 }
 
-async function sendReferrals(user: TelegramUserPayload, reply: (message: string) => Promise<unknown>) {
+async function sendReferrals(
+  user: TelegramUserPayload,
+  reply: (message: string, keyboard?: InlineKeyboard) => Promise<unknown>
+) {
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
   const data = await getReferrals(user);
+  const inviteLink = buildInviteLink(data.referralCode);
+  const inviteText = userLangStore.get(user.id) === "ar" ? "انضم إلى VaultTap من هذا الرابط" : "Join VaultTap using this link";
+  const inviteShareUrl = inviteLink
+    ? `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(inviteText)}`
+    : "";
+  const keyboard = inviteShareUrl ? new InlineKeyboard().url(t(user.id, "inviteButton"), inviteShareUrl) : undefined;
+
   await reply(
     `👥 ${t(user.id, "referralsTitle")}\\n` +
+      `• ${t(user.id, "referralCodeLabel")}: ${data.referralCode}\\n` +
+      `• ${t(user.id, "rewardPerInviteLabel")}: ${data.rewardPerInvite}\\n` +
       `• ${t(user.id, "level1Label")}: ${data.level1Count}\\n` +
       `• ${t(user.id, "level2Label")}: ${data.level2Count}\\n` +
-      `• ${t(user.id, "estimatedRewardsLabel")}: ${data.estimatedRewards}`
+      `• ${t(user.id, "estimatedRewardsLabel")}: ${data.estimatedRewards}` +
+      (inviteLink ? `\\n• Link: ${inviteLink}` : `\\n• ${t(user.id, "inviteFallback")}`),
+    keyboard
   );
 }
 
@@ -304,7 +334,6 @@ bot.command("start", async (ctx) => {
   userLangStore.set(user.id, lang);
 
   try {
-    await ctx.replyWithChatAction("typing");
     await ctx.reply(welcomeMessage(user.id), {
       reply_markup: mainMenu(user.id)
     });
@@ -360,7 +389,6 @@ bot.command("help", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   userLangStore.set(user.id, userLangStore.get(user.id) ?? detectLang(user.language_code));
-  await ctx.replyWithChatAction("typing");
   await ctx.reply(t(user.id, "help"), {
     reply_markup: mainMenu(user.id)
   });
@@ -370,7 +398,6 @@ bot.command("profile", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
-    await ctx.replyWithChatAction("typing");
     await sendProfile(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -381,7 +408,6 @@ bot.command("top", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
-    await ctx.replyWithChatAction("typing");
     await sendTop(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -392,7 +418,6 @@ bot.command("tasks", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
-    await ctx.replyWithChatAction("typing");
     await sendTasks(user, (message, keyboard) => ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) }));
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
@@ -403,8 +428,21 @@ bot.command("ref", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
-    await ctx.replyWithChatAction("typing");
-    await sendReferrals(user, (message) => ctx.reply(message, { reply_markup: mainMenu(user.id) }));
+    await sendReferrals(user, (message, keyboard) =>
+      ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) })
+    );
+  } catch (error) {
+    await ctx.reply(humanError(user.id, error));
+  }
+});
+
+bot.command("invite", async (ctx) => {
+  const user = ctx.from;
+  if (!user) return;
+  try {
+    await sendReferrals(user, (message, keyboard) =>
+      ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) })
+    );
   } catch (error) {
     await ctx.reply(humanError(user.id, error));
   }
@@ -414,7 +452,6 @@ bot.command("stars", async (ctx) => {
   const user = ctx.from;
   if (!user) return;
   try {
-    await ctx.replyWithChatAction("typing");
     await sendStarsStore(user, (message, keyboard) =>
       ctx.reply(message, { reply_markup: keyboard ?? mainMenu(user.id) })
     );
@@ -434,7 +471,6 @@ bot.command("lang", async (ctx) => {
 bot.callbackQuery("profile", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
-    await ctx.replyWithChatAction("typing");
     await sendProfile(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
@@ -444,7 +480,6 @@ bot.callbackQuery("profile", async (ctx) => {
 bot.callbackQuery("leaderboard", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
-    await ctx.replyWithChatAction("typing");
     await sendTop(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
@@ -454,7 +489,6 @@ bot.callbackQuery("leaderboard", async (ctx) => {
 bot.callbackQuery("tasks", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
-    await ctx.replyWithChatAction("typing");
     await sendTasks(ctx.from, (message, keyboard) =>
       ctx.reply(message, { reply_markup: keyboard ?? mainMenu(ctx.from.id) })
     );
@@ -466,8 +500,9 @@ bot.callbackQuery("tasks", async (ctx) => {
 bot.callbackQuery("referrals", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
-    await ctx.replyWithChatAction("typing");
-    await sendReferrals(ctx.from, (message) => ctx.reply(message, { reply_markup: mainMenu(ctx.from.id) }));
+    await sendReferrals(ctx.from, (message, keyboard) =>
+      ctx.reply(message, { reply_markup: keyboard ?? mainMenu(ctx.from.id) })
+    );
   } catch (error) {
     await ctx.reply(humanError(ctx.from.id, error));
   }
@@ -476,7 +511,6 @@ bot.callbackQuery("referrals", async (ctx) => {
 bot.callbackQuery("stars", async (ctx) => {
   await ctx.answerCallbackQuery();
   try {
-    await ctx.replyWithChatAction("typing");
     await sendStarsStore(ctx.from, (message, keyboard) =>
       ctx.reply(message, { reply_markup: keyboard ?? mainMenu(ctx.from.id) })
     );
@@ -607,6 +641,7 @@ const BOT_COMMANDS = [
   { command: "top", description: "عرض قائمة الصدارة" },
   { command: "tasks", description: "عرض المهام وتحصيلها" },
   { command: "ref", description: "عرض أداء الإحالات" },
+  { command: "invite", description: "استخراج رابط الدعوة" },
   { command: "stars", description: "شراء الترقيات بالنجوم" },
   { command: "lang", description: "تغيير اللغة" }
 ];

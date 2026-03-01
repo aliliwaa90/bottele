@@ -90,6 +90,8 @@ export const api = {
   },
   referrals() {
     return request<{
+      referralCode?: string;
+      rewardPerInvite?: number;
       level1Count: number;
       level2Count: number;
       estimatedRewards: number;

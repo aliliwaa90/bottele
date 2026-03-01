@@ -72,9 +72,10 @@ const NAV_ITEMS: NavItem[] = [
   { key: "settings", labelAr: "الإعدادات", labelEn: "Settings", icon: Settings }
 ];
 
-const TAP_FLUSH_DELAY_MS = 120;
+const TAP_FLUSH_DELAY_MS = 70;
 const TURBO_TAP_SIZE = 10;
 const TURBO_COOLDOWN_MS = 4500;
+const TAP_FLUSH_BATCH = 40;
 
 function playTapSound() {
   const AudioContextClass =
@@ -180,6 +181,14 @@ export default function App() {
     user?.username?.trim() ||
     `${t("leaderboard.player")} #${String(user?.telegramId ?? "").slice(-4) || "0000"}`;
 
+  const referralLink = useMemo(() => {
+    const code = referral?.referralCode?.trim();
+    if (!code || !botUsername) {
+      return "";
+    }
+    return `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`;
+  }, [botUsername, referral?.referralCode]);
+
   const energyPercent = useMemo(() => {
     if (!user || user.maxEnergy === 0) return 0;
     return Math.round((user.energy / user.maxEnergy) * 100);
@@ -217,17 +226,20 @@ export default function App() {
     userRef.current = user;
   }, [user]);
 
-  async function refreshBaseData(currentBoardType: BoardType) {
-    const [gameState, taskState, board, referrals] = await Promise.all([
-      api.gameMe(),
-      api.getTasks(),
-      api.leaderboard(currentBoardType),
-      api.referrals()
-    ]);
+  async function refreshFastData() {
+    const gameState = await api.gameMe();
     setUser(gameState.user);
     setUpgrades(gameState.upgrades);
     setReferral(gameState.referral);
     setActiveEvents(gameState.activeEvents);
+  }
+
+  async function refreshSecondaryData(currentBoardType: BoardType) {
+    const [taskState, board, referrals] = await Promise.all([
+      api.getTasks(),
+      api.leaderboard(currentBoardType),
+      api.referrals()
+    ]);
     setTasks(taskState.tasks);
     setLeaderboard(board);
     setReferralStats(referrals);
@@ -280,7 +292,12 @@ export default function App() {
           });
         }
 
-        await refreshBaseData(leaderboardType);
+        await refreshFastData();
+        if (mounted) {
+          setLoading(false);
+        }
+
+        void refreshSecondaryData(leaderboardType).catch(() => undefined);
 
         if (SUPPORTED_LANGS.includes(login.user.language as (typeof SUPPORTED_LANGS)[number])) {
           await i18n.changeLanguage(login.user.language);
@@ -358,7 +375,7 @@ export default function App() {
 
     try {
       while (pendingTapsRef.current > 0) {
-        const batch = Math.min(30, pendingTapsRef.current);
+        const batch = Math.min(TAP_FLUSH_BATCH, pendingTapsRef.current);
         pendingTapsRef.current -= batch;
         setPendingTapsDisplay(pendingTapsRef.current);
         const response = await api.tap(batch);
@@ -418,7 +435,7 @@ export default function App() {
 
     pendingTapsRef.current += realTaps;
     setPendingTapsDisplay(pendingTapsRef.current);
-    if (pendingTapsRef.current >= 8) {
+    if (pendingTapsRef.current >= 6) {
       void flushTapQueue();
     } else {
       scheduleTapFlush();
@@ -554,6 +571,41 @@ export default function App() {
       });
   };
 
+  const copyReferralLink = () => {
+    if (!referralLink) {
+      toast.warning(
+        isRtl ? "أضف VITE_BOT_USERNAME لتفعيل رابط الدعوة." : "Set VITE_BOT_USERNAME to enable invite links."
+      );
+      return;
+    }
+    navigator.clipboard
+      .writeText(referralLink)
+      .then(() => toast.success(isRtl ? "تم نسخ رابط الدعوة" : "Invite link copied"))
+      .catch(() => toast.error(isRtl ? "تعذر نسخ الرابط" : "Failed to copy invite link"));
+  };
+
+  const shareReferralLink = () => {
+    if (!referralLink) {
+      toast.warning(
+        isRtl ? "أضف VITE_BOT_USERNAME لتفعيل رابط الدعوة." : "Set VITE_BOT_USERNAME to enable invite links."
+      );
+      return;
+    }
+    const text = isRtl
+      ? "انضم إلى VaultTap من هذا الرابط وخذ مكافأة 1000 نقطة:"
+      : "Join VaultTap using this link and get 1000 points:";
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(text)}`;
+    try {
+      if (isTelegramWebApp()) {
+        WebApp.openTelegramLink(shareUrl);
+      } else {
+        window.open(shareUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      window.open(shareUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
   const canAfford = (cost: number, points: string): boolean => {
     try {
       return BigInt(points) >= BigInt(cost);
@@ -655,7 +707,7 @@ export default function App() {
         <motion.button
           whileTap={{ scale: 0.95, y: 3 }}
           type="button"
-          onClick={handleTap}
+          onPointerDown={handleTap}
           className={cn("vt-character-tap", tapAnimating && "animate-pulseTap")}
         >
           <span className="vt-character-backdrop" />
@@ -729,6 +781,12 @@ export default function App() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {upgrades.length === 0 ? (
+          <div className="rounded-xl border border-border/60 bg-secondary/25 p-4 text-center text-sm">
+            {isRtl ? "جاري تجهيز الترقيات... اسحب للأسفل أو أعد الفتح بعد ثوانٍ." : "Preparing upgrades... reopen in a few seconds."}
+          </div>
+        ) : null}
+
         {upgrades
           .slice()
           .sort((a, b) => a.unlockLevel - b.unlockLevel || a.baseCost - b.baseCost)
@@ -888,9 +946,21 @@ export default function App() {
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="font-bold tracking-widest">{referral?.referralCode}</span>
             <Button size="sm" variant="outline" onClick={copyReferralCode}>
-              {isRtl ? "نسخ" : "Copy"}
+              {isRtl ? "نسخ الكود" : "Copy code"}
             </Button>
           </div>
+          <div className="mt-3 rounded-lg border border-border/60 bg-card/40 p-2 text-[11px] text-slate-300">
+            {isRtl ? "مكافأة الدعوة: 1000 نقطة لك + 1000 لصديقك." : "Invite reward: 1000 for you + 1000 for your friend."}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button size="sm" onClick={shareReferralLink}>
+              {isRtl ? "مشاركة رابط الدعوة" : "Share invite"}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={copyReferralLink}>
+              {isRtl ? "نسخ الرابط" : "Copy link"}
+            </Button>
+          </div>
+          <p className="mt-2 truncate text-xs text-slate-300/80">{referralLink || (isRtl ? "رابط الدعوة غير مفعّل بعد." : "Invite link not configured yet.")}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-2">

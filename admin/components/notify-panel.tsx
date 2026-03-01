@@ -16,8 +16,14 @@ export function NotifyPanel() {
   const send = async () => {
     setStatus("جاري الإرسال...");
     try {
-      await adminApi.notify({ title, body, target });
-      setStatus("تم إرسال الإذاعة بنجاح.");
+      const response = await adminApi.notify({ title, body, target });
+      if (response.delivery && !response.delivery.skipped) {
+        setStatus(
+          `تم الإرسال. Telegram: ${response.delivery.delivered} ناجحة / ${response.delivery.failed} فاشلة.`
+        );
+      } else {
+        setStatus("تم الإرسال داخل التطبيق فقط. إرسال Telegram غير مفعّل.");
+      }
       setTitle("");
       setBody("");
     } catch (error) {
@@ -46,7 +52,7 @@ export function NotifyPanel() {
           <option value="all">كل المستخدمين</option>
           <option value="active">المستخدمون النشطون</option>
         </select>
-        <Button className="w-full" onClick={() => void send()}>
+        <Button className="w-full" disabled={!title.trim() || !body.trim()} onClick={() => void send()}>
           إرسال الإذاعة
         </Button>
         {status ? <p className="text-xs text-muted-foreground">{status}</p> : null}
@@ -54,3 +60,4 @@ export function NotifyPanel() {
     </Card>
   );
 }
+
