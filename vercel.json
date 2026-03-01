@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm ci --legacy-peer-deps && npm run build:all",
+  "installCommand": "npm ci --legacy-peer-deps",
+  "env": {
+    "NODE_ENV": "production",
+    "NODE_OPTIONS": "--max-old-space-size=3096"
+  },
+  "nodeVersion": "20.x"
+}
