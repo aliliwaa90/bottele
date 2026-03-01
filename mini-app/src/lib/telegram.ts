@@ -49,3 +49,25 @@ export function getTelegramUser(): TelegramUser | null {
     return null;
   }
 }
+
+export type TelegramInvoiceStatus = "paid" | "cancelled" | "failed" | "pending" | "unsupported";
+
+export function openTelegramInvoice(invoiceUrl: string): Promise<TelegramInvoiceStatus> {
+  try {
+    const sdk = WebApp as unknown as {
+      openInvoice?: (
+        url: string,
+        callback?: (status: "paid" | "cancelled" | "failed" | "pending") => void
+      ) => void;
+    };
+    if (typeof sdk.openInvoice !== "function") {
+      return Promise.resolve("unsupported");
+    }
+
+    return new Promise((resolve) => {
+      sdk.openInvoice?.(invoiceUrl, (status) => resolve(status));
+    });
+  } catch {
+    return Promise.resolve("unsupported");
+  }
+}

@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bot,
-  Clock3,
   Coins,
   Crown,
-  Flame,
   Globe,
   Home,
   ListChecks,
@@ -37,7 +35,8 @@ import {
   getTelegramInitData,
   getTelegramUser,
   initTelegram,
-  isTelegramWebApp
+  isTelegramWebApp,
+  openTelegramInvoice
 } from "@/lib/telegram";
 import { cn, formatNumber } from "@/lib/utils";
 import type { LeaderboardItem, Task, Upgrade, User } from "@/types/api";
@@ -46,7 +45,7 @@ const RTL_LANGS = new Set(["ar", "fa"]);
 const SUPPORTED_LANGS = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
 
 type BoardType = "global" | "weekly" | "friends";
-type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard" | "settings";
+type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard";
 
 type FloatingGain = { id: number; value: number; left: number; top: number };
 type ReferralStats = {
@@ -65,17 +64,16 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { key: "home", labelAr: "الرئيسية", labelEn: "Home", icon: Home },
-  { key: "upgrades", labelAr: "الترقيات", labelEn: "Upgrades", icon: TrendingUp },
+  { key: "upgrades", labelAr: "المتجر", labelEn: "Store", icon: TrendingUp },
   { key: "tasks", labelAr: "المهام", labelEn: "Tasks", icon: ListChecks },
   { key: "friends", labelAr: "الأصدقاء", labelEn: "Friends", icon: Users },
-  { key: "leaderboard", labelAr: "الصدارة", labelEn: "Top", icon: Trophy },
-  { key: "settings", labelAr: "الإعدادات", labelEn: "Settings", icon: Settings }
+  { key: "leaderboard", labelAr: "الصدارة", labelEn: "Top", icon: Trophy }
 ];
 
-const TAP_FLUSH_DELAY_MS = 70;
+const TAP_FLUSH_DELAY_MS = 24;
 const TURBO_TAP_SIZE = 10;
 const TURBO_COOLDOWN_MS = 4500;
-const TAP_FLUSH_BATCH = 40;
+const TAP_FLUSH_BATCH = 120;
 
 function playTapSound() {
   const AudioContextClass =
@@ -167,8 +165,8 @@ export default function App() {
   const [floatingGains, setFloatingGains] = useState<FloatingGain[]>([]);
   const [turboCooldownUntil, setTurboCooldownUntil] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [pendingTapsDisplay, setPendingTapsDisplay] = useState(0);
   const [isSyncingTaps, setIsSyncingTaps] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const userRef = useRef<User | null>(null);
   const pendingTapsRef = useRef(0);
@@ -377,14 +375,12 @@ export default function App() {
       while (pendingTapsRef.current > 0) {
         const batch = Math.min(TAP_FLUSH_BATCH, pendingTapsRef.current);
         pendingTapsRef.current -= batch;
-        setPendingTapsDisplay(pendingTapsRef.current);
         const response = await api.tap(batch);
         userRef.current = response.user;
         setUser(response.user);
       }
     } catch (error) {
       pendingTapsRef.current = 0;
-      setPendingTapsDisplay(0);
       toast.error(error instanceof Error ? error.message : t("common.error"));
       try {
         const state = await api.gameMe();
@@ -434,8 +430,7 @@ export default function App() {
     addFloatingGain(estimatedGain);
 
     pendingTapsRef.current += realTaps;
-    setPendingTapsDisplay(pendingTapsRef.current);
-    if (pendingTapsRef.current >= 6) {
+    if (pendingTapsRef.current >= 2) {
       void flushTapQueue();
     } else {
       scheduleTapFlush();
@@ -498,35 +493,45 @@ export default function App() {
     }
   };
 
-  const handleStarsUpgrade = (upgrade: Upgrade) => {
+  const handleStarsUpgrade = async (upgrade: Upgrade) => {
     if (!upgrade.starsPrice || upgrade.starsPrice <= 0) {
       toast.warning(isRtl ? "هذه الترقية لا تدعم النجوم" : "This upgrade is not available for Stars.");
       return;
     }
 
-    if (!botUsername) {
-      toast.error(
-        isRtl
-          ? "أضف VITE_BOT_USERNAME في متغيرات البيئة أولاً."
-          : "Set VITE_BOT_USERNAME in env variables first."
-      );
-      return;
-    }
-
-    const link = `https://t.me/${botUsername}?start=buy_${encodeURIComponent(upgrade.key)}`;
     try {
-      if (isTelegramWebApp()) {
-        WebApp.openTelegramLink(link);
-      } else {
-        window.open(link, "_blank", "noopener,noreferrer");
+      await flushTapQueue();
+      const invoice = await api.createStarsInvoice(upgrade.key);
+      const status = await openTelegramInvoice(invoice.invoiceLink);
+
+      if (status === "paid") {
+        toast.success(
+          isRtl ? "تم الدفع بالنجوم بنجاح. جاري تحديث الترقية..." : "Stars payment completed. Updating..."
+        );
+        await refreshFastData();
+        return;
       }
-      toast.success(
-        isRtl
-          ? "تم فتح شاشة الدفع بالنجوم داخل تيليجرام."
-          : "Stars purchase flow opened in Telegram."
-      );
-    } catch {
-      window.open(link, "_blank", "noopener,noreferrer");
+
+      if (status === "cancelled") {
+        toast.info(isRtl ? "تم إلغاء الدفع." : "Payment cancelled.");
+        return;
+      }
+
+      if (status === "failed") {
+        toast.error(isRtl ? "فشل الدفع، أعد المحاولة." : "Payment failed. Try again.");
+        return;
+      }
+
+      if (status === "unsupported") {
+        window.open(invoice.invoiceLink, "_blank", "noopener,noreferrer");
+        toast.info(
+          isRtl
+            ? "تم فتح رابط الفاتورة. أكمل الدفع داخل تيليجرام."
+            : "Invoice opened by link. Complete payment in Telegram."
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("common.error"));
     }
   };
 
@@ -662,42 +667,60 @@ export default function App() {
   }
 
   const homeScreen = (
-    <section className="vt-home-screen">
-      <div className="vt-home-header">
-        <button type="button" className="vt-icon-tile" onClick={() => setActiveTab("settings")}>
-          <Settings size={17} />
+    <section className="vt-home">
+      <header className="vt-home-toolbar">
+        <button type="button" className="vt-toolbar-btn" onClick={() => setSettingsOpen(true)}>
+          <Settings size={18} />
         </button>
-        <button type="button" className="vt-icon-tile" onClick={() => setActiveTab("leaderboard")}>
-          <Trophy size={17} />
+        <div className="vt-player-chip">
+          <span className="vt-player-chip__level">
+            {isRtl ? "المستوى" : "Level"} {playerLevel}/105
+          </span>
+          <span className="vt-player-chip__name">{displayName}</span>
+        </div>
+        <button type="button" className="vt-toolbar-btn" onClick={() => setActiveTab("leaderboard")}>
+          <Trophy size={18} />
         </button>
-        <div className="vt-level-card">
-          <div className="text-xs text-amber-100/80">{isRtl ? "المستوى" : "Level"}</div>
-          <div className="text-base font-black text-amber-300">{playerLevel} / 105</div>
-          <div className="text-[11px] text-slate-300">{displayName}</div>
+      </header>
+
+      <div className="vt-points-stack">
+        <p className="vt-points-main">{formatNumber(user.points)}</p>
+        <p className="vt-points-sub">{isRtl ? "إجمالي النقاط المكتسبة" : "Total earned points"}</p>
+        <div className="mt-2 rounded-xl border border-border/50 bg-secondary/30 px-2 py-1.5">
+          <div className="mb-1 flex items-center justify-between text-[11px] text-slate-300">
+            <span>{isRtl ? "تقدم المستوى" : "Level progress"}</span>
+            <span>{levelProgress}%</span>
+          </div>
+          <Progress value={levelProgress} className="h-2" />
         </div>
       </div>
 
-      <div className="vt-score-box">
-        <div className="vt-score-value">{formatNumber(user.points)}</div>
-        <div className="vt-score-subtitle">{isRtl ? "إجمالي النقاط المكتسبة" : "Total Earned Points"}</div>
-      </div>
-
-      <div className="vt-level-progress">
-        <div className="flex items-center justify-between text-xs text-slate-300/90">
-          <span>{isRtl ? "تقدم المستوى" : "Level progress"}</span>
-          <span>{levelProgress}%</span>
+      <div className="vt-energy-wrap">
+        <div className="vt-energy-head">
+          <span className="flex items-center gap-1.5">
+            <Zap size={14} className="text-yellow-300" />
+            {t("stats.energy")}
+          </span>
+          <span>
+            {user.energy}/{user.maxEnergy}
+          </span>
         </div>
-        <Progress value={levelProgress} className="mt-1.5 h-2" />
+        <Progress value={energyPercent} className="h-2.5" />
+        <div className="vt-energy-foot">
+          <span>{isRtl ? `+${user.tapPower} للنقرة` : `+${user.tapPower} per tap`}</span>
+          <span>{t("stats.combo")}: {user.comboMultiplier.toFixed(2)}x</span>
+          <span>{t("stats.pph")}: {formatNumber(user.pph)}</span>
+        </div>
       </div>
 
-      <div className="vt-home-main">
+      <div className="vt-tap-stage">
         {floatingGains.map((gain) => (
           <motion.div
             key={gain.id}
             initial={{ opacity: 0, y: 12, scale: 0.85 }}
-            animate={{ opacity: 1, y: -22, scale: 1 }}
+            animate={{ opacity: 1, y: -26, scale: 1 }}
             exit={{ opacity: 0 }}
-            className="pointer-events-none absolute z-30 -translate-x-1/2 text-sm font-black text-yellow-300"
+            className="vt-floating-gain"
             style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
           >
             +{gain.value}
@@ -705,42 +728,25 @@ export default function App() {
         ))}
 
         <motion.button
-          whileTap={{ scale: 0.95, y: 3 }}
+          whileTap={{ scale: 0.96, y: 4 }}
           type="button"
           onPointerDown={handleTap}
-          className={cn("vt-character-tap", tapAnimating && "animate-pulseTap")}
+          className={cn("vt-avatar-trigger", tapAnimating && "is-busy")}
         >
-          <span className="vt-character-backdrop" />
-          <span className="vt-character-head">
-            <span className="vt-eye" />
-            <span className="vt-eye" />
+          <span className="vt-avatar-glow" />
+          <span className="vt-avatar-body">
+            <span className="vt-avatar-head">
+              <span className="vt-eye" />
+              <span className="vt-eye" />
+            </span>
+            <span className="vt-avatar-core">VT</span>
+            <span className="vt-avatar-legs" />
           </span>
-          <span className="vt-character-body">
-            <span className="vt-character-core">VT</span>
-          </span>
-          <span className="vt-character-feet" />
         </motion.button>
-      </div>
 
-      <div className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
-          <MiniStat label={isRtl ? "النقر" : "Tap"} value={`+${user.tapPower}`} icon={<Target size={14} />} />
-          <MiniStat label={t("stats.combo")} value={`${user.comboMultiplier.toFixed(2)}x`} icon={<Flame size={14} />} />
-          <MiniStat label={t("stats.pph")} value={formatNumber(user.pph)} icon={<Clock3 size={14} />} />
-        </div>
-
-        <div className="vt-energy-card">
-          <div className="mb-2 flex items-center justify-between text-sm font-semibold">
-            <span className="flex items-center gap-1.5">
-              <Zap size={14} className="text-yellow-300" />
-              {t("stats.energy")}
-            </span>
-            <span>
-              {user.energy}/{user.maxEnergy}
-            </span>
-          </div>
-          <Progress value={energyPercent} className="h-2.5" />
-          <div className="mt-3 flex items-center gap-2">
+        <div className="vt-stage-meta">
+          <p>{isRtl ? "اضغط بسرعة لرفع الكومبو" : "Tap fast to boost combo"}</p>
+          <div className="vt-stage-actions">
             <Button
               className="flex-1"
               size="sm"
@@ -752,21 +758,11 @@ export default function App() {
                 ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
                 : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
             </Button>
-            <Button
-              className="flex-1"
-              size="sm"
-              variant="secondary"
-              disabled={pendingTapsDisplay === 0 || isSyncingTaps}
-              onClick={() => void flushTapQueue()}
-            >
-              {isSyncingTaps ? (isRtl ? "مزامنة..." : "Syncing...") : isRtl ? "مزامنة" : "Sync"}
-            </Button>
+            <div className={cn("vt-sync-chip", isSyncingTaps && "is-live")}>
+              <span className="vt-sync-dot" />
+              {isSyncingTaps ? (isRtl ? "جار الحفظ..." : "Saving...") : isRtl ? "حفظ تلقائي" : "Auto-save"}
+            </div>
           </div>
-          <p className="mt-2 text-center text-xs text-slate-300/80">
-            {isRtl
-              ? `نقرات قيد الإرسال: ${pendingTapsDisplay}`
-              : `Pending taps: ${pendingTapsDisplay}`}
-          </p>
         </div>
       </div>
     </section>
@@ -811,7 +807,7 @@ export default function App() {
                         {upgrade.imageUrl ? (
                           <img src={upgrade.imageUrl} alt={upgrade.titleEn} className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-xl">{upgrade.icon || "⚙️"}</span>
+                          <span className="text-xl">{upgrade.icon || "??"}</span>
                         )}
                       </div>
                       <div>
@@ -1048,14 +1044,8 @@ export default function App() {
   );
 
   const settingsScreen = (
-    <Card className="vt-panel-card">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Settings size={18} className="text-cyan-300" />
-          {isRtl ? "الإعدادات والتحكم" : "Settings & Control"}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <Card className="vt-panel-card vt-settings-card">
+      <CardContent className="space-y-3 p-4">
         <SettingTile
           icon={<Globe size={16} />}
           title={isRtl ? "اللغة" : "Language"}
@@ -1122,8 +1112,8 @@ export default function App() {
 
         <div className="rounded-xl border border-amber-300/35 bg-amber-500/10 p-3 text-xs text-amber-100">
           {isRtl
-            ? "شراء النجوم يتم من بطاقات الترقيات مباشرة. اضغط زر النجوم داخل أي ترقية مدعومة."
-            : "Stars upgrades are available directly in upgrade cards. Tap the Stars button on supported cards."}
+            ? "الشراء بالنجوم يتم من داخل التطبيق مباشرة من بطاقة الترقية."
+            : "Stars purchases are handled directly inside this mini app from upgrade cards."}
         </div>
       </CardContent>
     </Card>
@@ -1138,9 +1128,7 @@ export default function App() {
           ? tasksScreen
           : activeTab === "friends"
             ? friendsScreen
-            : activeTab === "leaderboard"
-              ? leaderboardScreen
-              : settingsScreen;
+            : leaderboardScreen;
 
   return (
     <div className="vt-shell">
@@ -1188,6 +1176,43 @@ export default function App() {
           />
         </div>
       </nav>
+
+      <AnimatePresence>
+        {settingsOpen ? (
+          <>
+            <motion.button
+              type="button"
+              className="vt-settings-overlay"
+              aria-label="close settings"
+              onClick={() => setSettingsOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 36 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 28 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="vt-settings-modal"
+            >
+              <div className="flex items-center justify-between px-1 pb-2">
+                <p className="text-sm font-semibold text-slate-200">
+                  {isRtl ? "الإعدادات والتحكم" : "Settings & Control"}
+                </p>
+                <button
+                  type="button"
+                  className="vt-toolbar-btn h-8 w-8"
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  <span className="text-lg leading-none">×</span>
+                </button>
+              </div>
+              {settingsScreen}
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1254,3 +1279,4 @@ function SettingTile({
     </div>
   );
 }
+

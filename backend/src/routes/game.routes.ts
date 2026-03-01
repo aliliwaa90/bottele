@@ -13,7 +13,7 @@ import { validateBody, validateQuery } from "../utils/validate.js";
 const router = Router();
 
 const tapSchema = z.object({
-  taps: z.coerce.number().int().min(1).max(30)
+  taps: z.coerce.number().int().min(1).max(120)
 });
 
 const leaderboardSchema = z.object({

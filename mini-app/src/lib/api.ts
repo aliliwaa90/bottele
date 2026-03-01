@@ -103,5 +103,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ walletAddress })
     });
+  },
+  createStarsInvoice(upgradeKey: string) {
+    return request<{ invoiceLink: string; starsPrice: number; upgradeKey: string }>(
+      "/payments/telegram-stars/invoice",
+      {
+        method: "POST",
+        body: JSON.stringify({ upgradeKey })
+      }
+    );
   }
 };
