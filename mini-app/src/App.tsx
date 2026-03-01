@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+﻿import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bot,
@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
-  Target,
   TrendingUp,
   Trophy,
   Users,
@@ -45,6 +44,7 @@ const SUPPORTED_LANGS = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
 
 type BoardType = "global" | "weekly" | "friends";
 type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard";
+type TaskFilter = "all" | "DAILY" | "SOCIAL" | "CIPHER";
 
 type FloatingGain = { id: number; value: number; left: number; top: number; burst: boolean };
 type ReferralStats = {
@@ -69,11 +69,12 @@ const NAV_ITEMS: NavItem[] = [
   { key: "leaderboard", labelAr: "الصدارة", labelEn: "Top", icon: Trophy }
 ];
 
-const TAP_FLUSH_DELAY_MS = 36;
+const TAP_FLUSH_DELAY_MS = 18;
 const TURBO_TAP_SIZE = 10;
 const TURBO_COOLDOWN_MS = 4500;
-const TAP_FLUSH_BATCH = 120;
-const TAP_FLUSH_IMMEDIATE_THRESHOLD = 14;
+const TAP_FLUSH_BATCH = 400;
+const TAP_FLUSH_IMMEDIATE_THRESHOLD = 6;
+const ENERGY_WARNING_COOLDOWN_MS = 900;
 
 type TonWalletConnectProps = {
   className?: string;
@@ -193,6 +194,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
   const [tabDirection, setTabDirection] = useState(1);
   const [leaderboardType, setLeaderboardType] = useState<BoardType>("global");
+  const [upgradeFilter, setUpgradeFilter] = useState("all");
+  const [taskFilter, setTaskFilter] = useState<TaskFilter>("all");
   const [referral, setReferral] = useState<{ directReferrals: number; referralCode: string } | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
   const [activeEvents, setActiveEvents] = useState<
@@ -212,6 +215,7 @@ export default function App() {
   const flushingTapsRef = useRef(false);
   const tapFlushTimerRef = useRef<number | null>(null);
   const lastSoundAtRef = useRef(0);
+  const lastEnergyWarningAtRef = useRef(0);
 
   const isRtl = RTL_LANGS.has(i18n.language);
   const displayName =
@@ -254,6 +258,28 @@ export default function App() {
     const ratio = (current - prevNeed) / Math.max(1, nextNeed - prevNeed);
     return Math.min(100, Math.max(0, Math.round(ratio * 100)));
   }, [playerLevel, pointsNumber, user]);
+
+  const upgradeCategories = useMemo(
+    () => ["all", ...Array.from(new Set(upgrades.map((upgrade) => upgrade.category)))],
+    [upgrades]
+  );
+
+  const filteredUpgrades = useMemo(
+    () =>
+      upgrades
+        .filter((upgrade) => (upgradeFilter === "all" ? true : upgrade.category === upgradeFilter))
+        .slice()
+        .sort((a, b) => a.unlockLevel - b.unlockLevel || a.baseCost - b.baseCost),
+    [upgrades, upgradeFilter]
+  );
+
+  const filteredTasks = useMemo(
+    () => tasks.filter((task) => (taskFilter === "all" ? true : task.type === taskFilter)),
+    [tasks, taskFilter]
+  );
+
+  const topThreeLeaders = useMemo(() => leaderboard.slice(0, 3), [leaderboard]);
+  const restLeaders = useMemo(() => leaderboard.slice(3), [leaderboard]);
 
   const navActiveIndex = useMemo(() => {
     const index = NAV_ITEMS.findIndex((item) => item.key === activeTab);
@@ -418,15 +444,13 @@ export default function App() {
 
     flushingTapsRef.current = true;
     setIsSyncingTaps(true);
+    const batch = Math.min(TAP_FLUSH_BATCH, pendingTapsRef.current);
+    pendingTapsRef.current -= batch;
 
     try {
-      while (pendingTapsRef.current > 0) {
-        const batch = Math.min(TAP_FLUSH_BATCH, pendingTapsRef.current);
-        pendingTapsRef.current -= batch;
-        const response = await api.tap(batch);
-        userRef.current = response.user;
-        setUser(response.user);
-      }
+      const response = await api.tap(batch);
+      userRef.current = response.user;
+      setUser(response.user);
     } catch (error) {
       pendingTapsRef.current = 0;
       toast.error(error instanceof Error ? error.message : t("common.error"));
@@ -442,9 +466,10 @@ export default function App() {
       }
     } finally {
       flushingTapsRef.current = false;
-      setIsSyncingTaps(false);
       if (pendingTapsRef.current > 0) {
-        scheduleTapFlush(40);
+        scheduleTapFlush(10);
+      } else {
+        setIsSyncingTaps(false);
       }
     }
   };
@@ -489,7 +514,11 @@ export default function App() {
   const handleTap = () => {
     const accepted = queueTaps(1);
     if (accepted === 0) {
-      toast.warning(t("tap.energyLow"));
+      const now = Date.now();
+      if (now - lastEnergyWarningAtRef.current >= ENERGY_WARNING_COOLDOWN_MS) {
+        toast.warning(t("tap.energyLow"));
+        lastEnergyWarningAtRef.current = now;
+      }
       return;
     }
 
@@ -516,7 +545,10 @@ export default function App() {
 
     const accepted = queueTaps(TURBO_TAP_SIZE);
     if (accepted === 0) {
-      toast.warning(t("tap.energyLow"));
+      if (now - lastEnergyWarningAtRef.current >= ENERGY_WARNING_COOLDOWN_MS) {
+        toast.warning(t("tap.energyLow"));
+        lastEnergyWarningAtRef.current = now;
+      }
       return;
     }
 
@@ -729,118 +761,119 @@ export default function App() {
   }
 
   const homeScreen = (
-    <section className="vt-home">
-      <header className="vt-home-toolbar">
-        <button type="button" className="vt-toolbar-btn" onClick={() => setSettingsOpen(true)}>
-          <Settings size={18} />
-        </button>
-        <div className="vt-player-chip">
-          <span className="vt-player-chip__level">
-            {isRtl ? "المستوى" : "Level"} {playerLevel}/105
-          </span>
-          <span className="vt-player-chip__name">{displayName}</span>
+    <section className="vt-home-screen">
+      <header className="vt-home-top">
+        <div className="vt-brand-block">
+          <p className="vt-brand-title">VaultTap</p>
+          <p className="vt-brand-sub">{isRtl ? "نسخة جديدة كلياً" : "Full new experience"}</p>
         </div>
-        <button type="button" className="vt-toolbar-btn" onClick={() => handleTabChange("leaderboard")}>
-          <Trophy size={18} />
-        </button>
+        <div className="vt-top-actions">
+          <button type="button" className="vt-icon-btn" onClick={() => setSettingsOpen(true)}>
+            <Settings size={18} />
+          </button>
+          <button type="button" className="vt-icon-btn" onClick={() => handleTabChange("leaderboard")}>
+            <Trophy size={18} />
+          </button>
+        </div>
       </header>
 
-      <div className="vt-points-stack">
-        <p className="vt-points-main">{formatFullNumber(user.points)}</p>
-        <p className="vt-points-sub">{isRtl ? "إجمالي النقاط المكتسبة" : "Total earned points"}</p>
-        <div className="mt-2 rounded-xl border border-border/50 bg-secondary/30 px-2 py-1.5">
-          <div className="mb-1 flex items-center justify-between text-[11px] text-slate-300">
+      <div className="vt-player-banner">
+        <div>
+          <p className="vt-player-name">{displayName}</p>
+          <p className="vt-player-level">
+            {isRtl ? "المستوى" : "Level"} {playerLevel}/105
+          </p>
+        </div>
+        <Badge variant="outline" className="vt-live-badge">
+          {isRtl ? "متصل" : "Online"}
+        </Badge>
+      </div>
+
+      {activeEvents.length > 0 ? (
+        <div className="vt-live-event">
+          <Sparkles size={14} />
+          <span>
+            {isRtl ? "حدث نشط" : "Live Event"}:{" "}
+            {activeEvents
+              .slice(0, 2)
+              .map((event) => `${isRtl ? event.nameAr : event.nameEn} x${event.multiplier}`)
+              .join(" • ")}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="vt-balance-box">
+        <p className="vt-balance">{formatFullNumber(user.points)}</p>
+        <p className="vt-balance-label">{isRtl ? "إجمالي النقاط المكتسبة" : "Total earned points"}</p>
+        <div className="vt-level-progress">
+          <div className="vt-level-progress-head">
             <span>{isRtl ? "تقدم المستوى" : "Level progress"}</span>
             <span>{levelProgress}%</span>
           </div>
-          <Progress value={levelProgress} className="h-2" />
+          <Progress value={levelProgress} className="h-2.5" />
         </div>
       </div>
 
-      <div className="vt-energy-wrap">
-        <div className="vt-energy-head">
-          <span className="flex items-center gap-1.5">
-            <Zap size={14} className="text-yellow-300" />
-            {t("stats.energy")}
-          </span>
-          <span>
-            {user.energy}/{user.maxEnergy}
-          </span>
+      <div className="vt-stats-row">
+        <StatBox label={t("stats.energy")} value={`${user.energy}/${user.maxEnergy}`} icon={<Zap size={14} />} />
+        <StatBox label={t("stats.combo")} value={`${user.comboMultiplier.toFixed(2)}x`} icon={<Crown size={14} />} />
+        <StatBox label="PPH" value={formatNumber(user.pph)} icon={<Coins size={14} />} />
+      </div>
+
+      <div className="vt-energy-strip">
+        <div className="vt-energy-strip-head">
+          <span>{isRtl ? "تعبئة الطاقة" : "Energy Recharge"}</span>
+          <span>{energyPercent}%</span>
         </div>
         <Progress value={energyPercent} className="h-2.5" />
-        <div className="vt-energy-foot">
-          <span>{isRtl ? `+${user.tapPower} للنقرة` : `+${user.tapPower} per tap`}</span>
-          <span>{t("stats.combo")}: {user.comboMultiplier.toFixed(2)}x</span>
-          <span>{t("stats.pph")}: {formatNumber(user.pph)}</span>
-        </div>
       </div>
 
-      <div className="vt-kpi-row">
-        <div className="vt-kpi-item">
-          <p>{isRtl ? "قوة النقر" : "Tap Power"}</p>
-          <strong>+{user.tapPower}</strong>
-        </div>
-        <div className="vt-kpi-item">
-          <p>{t("stats.combo")}</p>
-          <strong>{user.comboMultiplier.toFixed(2)}x</strong>
-        </div>
-        <div className="vt-kpi-item">
-          <p>{t("stats.pph")}</p>
-          <strong>{formatNumber(user.pph)}</strong>
-        </div>
-      </div>
-
-      <div className="vt-tap-stage">
+      <div className="vt-tap-zone">
         {floatingGains.map((gain) => (
           <motion.div
             key={gain.id}
-            initial={{ opacity: 0, y: 14, scale: 0.82 }}
-            animate={{ opacity: 1, y: gain.burst ? -34 : -26, scale: gain.burst ? 1.1 : 1 }}
+            initial={{ opacity: 0, y: 14, scale: 0.8 }}
+            animate={{ opacity: 1, y: gain.burst ? -38 : -26, scale: gain.burst ? 1.12 : 1 }}
             exit={{ opacity: 0, y: gain.burst ? -50 : -36 }}
             className={cn("vt-floating-gain", gain.burst && "is-burst")}
             style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
           >
             <span>+{gain.value}</span>
-            {gain.burst ? <span className="vt-floating-ring" /> : null}
           </motion.div>
         ))}
 
         <motion.button
-          whileTap={{ scale: 0.96, y: 4 }}
+          whileTap={{ scale: 0.96 }}
           type="button"
           onPointerDown={handleTap}
-          className={cn("vt-avatar-trigger", tapAnimating && "is-busy")}
+          className={cn("vt-main-coin", tapAnimating && "is-active")}
         >
-          <span className="vt-avatar-glow" />
-          <span className="vt-avatar-body">
-            <span className="vt-avatar-head">
-              <span className="vt-eye" />
-              <span className="vt-eye" />
+          <span className="vt-main-coin-inner">
+            <span className="vt-main-avatar-head" aria-hidden="true">
+              <span className="vt-main-avatar-eye" />
+              <span className="vt-main-avatar-eye" />
             </span>
-            <span className="vt-avatar-core">VT</span>
-            <span className="vt-avatar-legs" />
+            <span className="vt-main-avatar-body">VT</span>
           </span>
+          <span className="vt-main-coin-ring" />
+          <span className="vt-main-coin-hint">{isRtl ? "اضغط بسرعة لرفع الكومبو" : "Tap quickly to raise combo"}</span>
         </motion.button>
 
-        <div className="vt-stage-meta">
-          <p>{isRtl ? "اضغط بسرعة لرفع الكومبو" : "Tap fast to boost combo"}</p>
-          <div className="vt-stage-actions">
-            <Button
-              className="flex-1"
-              size="sm"
-              variant="default"
-              disabled={turboCooldownSeconds > 0 || user.energy <= 0}
-              onClick={handleTurboTap}
-            >
-              {turboCooldownSeconds > 0
-                ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
-                : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
-            </Button>
-            <div className={cn("vt-sync-chip", isSyncingTaps && "is-live")}>
-              <span className="vt-sync-dot" />
-              {isSyncingTaps ? (isRtl ? "جار الحفظ..." : "Saving...") : isRtl ? "حفظ تلقائي" : "Auto-save"}
-            </div>
+        <div className="vt-tap-footer">
+          <div className={cn("vt-sync-pill", isSyncingTaps && "is-live")}>
+            <span className={cn("vt-live-dot", isSyncingTaps && "is-on")} />
+            {isRtl ? "مباشر" : "Live"}
           </div>
+          <Button
+            size="sm"
+            className="min-w-32"
+            disabled={turboCooldownSeconds > 0 || user.energy <= 0}
+            onClick={handleTurboTap}
+          >
+            {turboCooldownSeconds > 0
+              ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
+              : `${isRtl ? "توربو" : "Turbo"} x${TURBO_TAP_SIZE}`}
+          </Button>
         </div>
       </div>
     </section>
@@ -848,117 +881,149 @@ export default function App() {
 
   const upgradesScreen = (
     <Card className="vt-panel-card">
-      <CardHeader>
+      <CardHeader className="space-y-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <TrendingUp size={18} className="text-amber-300" />
-          {isRtl ? "سوق الترقيات" : "Upgrades Market"}
+          {isRtl ? "مركز الترقيات" : "Upgrade Center"}
         </CardTitle>
+        <div className="vt-filter-row">
+          {upgradeCategories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={cn("vt-filter-chip", upgradeFilter === category && "is-active")}
+              onClick={() => setUpgradeFilter(category)}
+            >
+              {category === "all" ? (isRtl ? "الكل" : "All") : category.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {upgrades.length === 0 ? (
+        {filteredUpgrades.length === 0 ? (
           <div className="rounded-xl border border-border/60 bg-secondary/25 p-4 text-center text-sm">
-            {isRtl ? "جاري تجهيز الترقيات... اسحب للأسفل أو أعد الفتح بعد ثوانٍ." : "Preparing upgrades... reopen in a few seconds."}
+            {isRtl ? "لا توجد ترقيات في هذا القسم حالياً." : "No upgrades in this filter yet."}
           </div>
         ) : null}
 
-        {upgrades
-          .slice()
-          .sort((a, b) => a.unlockLevel - b.unlockLevel || a.baseCost - b.baseCost)
-          .map((upgrade) => {
-            const maxed = upgrade.nextCost === null;
-            const cost = upgrade.nextCost ?? 0;
-            const canBuy = !maxed && canAfford(cost, user.points);
-            const lockedByLevel = playerLevel < upgrade.unlockLevel;
-            const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
-            return (
-              <div key={upgrade.id} className="vt-upgrade-card">
-                <div
-                  className={cn(
-                    "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-70",
-                    categoryStyle(upgrade.category)
-                  )}
-                />
-                <div className="relative z-10">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
-                      <div className="vt-upgrade-thumb">
-                        {upgrade.imageUrl ? (
-                          <img src={upgrade.imageUrl} alt={upgrade.titleEn} className="h-full w-full object-cover" />
-                        ) : (
-                          <span className="text-xl">{upgrade.icon || "??"}</span>
-                        )}
-                      </div>
-                      <div>
-                        <h4 className="font-bold leading-tight">
-                          {isRtl ? upgrade.titleAr : upgrade.titleEn}
-                        </h4>
-                        <p className="mt-1 text-[11px] text-slate-300">{upgrade.category.toUpperCase()}</p>
-                      </div>
+        {filteredUpgrades.map((upgrade, index) => {
+          const maxed = upgrade.nextCost === null;
+          const cost = upgrade.nextCost ?? 0;
+          const canBuyNow = !maxed && canAfford(cost, user.points);
+          const lockedByLevel = playerLevel < upgrade.unlockLevel;
+          const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
+          return (
+            <motion.div
+              key={upgrade.id}
+              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{
+                duration: 0.4,
+                delay: index * 0.06,
+                ease: [0.22, 1, 0.36, 1]
+              }}
+              whileHover={{ y: -2 }}
+              className="vt-upgrade-card"
+            >
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-0 bg-gradient-to-br opacity-70",
+                  categoryStyle(upgrade.category)
+                )}
+              />
+              <div className="relative z-10">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <div className="vt-upgrade-thumb">
+                      {upgrade.imageUrl ? (
+                        <img src={upgrade.imageUrl} alt={upgrade.titleEn} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-xl">{upgrade.icon || "⚡"}</span>
+                      )}
                     </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {isRtl ? "المستوى" : "Level"} {upgrade.currentLevel}/{upgrade.maxLevel}
-                    </Badge>
+                    <div>
+                      <h4 className="font-bold leading-tight">{isRtl ? upgrade.titleAr : upgrade.titleEn}</h4>
+                      <p className="mt-1 text-[11px] text-slate-300">{upgrade.category.toUpperCase()}</p>
+                    </div>
                   </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {isRtl ? "مستوى" : "Lvl"} {upgrade.currentLevel}/{upgrade.maxLevel}
+                  </Badge>
+                </div>
 
-                  <p className="mt-2 text-xs text-slate-300/85">
-                    {isRtl ? upgrade.descriptionAr : upgrade.descriptionEn}
-                  </p>
+                <p className="mt-2 text-xs text-slate-300/85">{isRtl ? upgrade.descriptionAr : upgrade.descriptionEn}</p>
+                <Progress value={levelPercent} className="mt-3 h-2.5" />
 
-                  <Progress value={levelPercent} className="mt-3 h-2.5" />
+                <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
+                  <BoostTag label={isRtl ? "النقر" : "Tap"} value={upgrade.tapBoost} />
+                  <BoostTag label="PPH" value={upgrade.pphBoost} />
+                  <BoostTag label={isRtl ? "الطاقة" : "Energy"} value={upgrade.energyBoost} />
+                  <BoostTag label={isRtl ? "تلقائي" : "Auto"} value={upgrade.autoTapBoost} />
+                </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs">
-                    <BoostTag label={isRtl ? "قوة النقر" : "Tap"} value={upgrade.tapBoost} />
-                    <BoostTag label="PPH" value={upgrade.pphBoost} />
-                    <BoostTag label={isRtl ? "طاقة" : "Energy"} value={upgrade.energyBoost} />
-                    <BoostTag label={isRtl ? "أوتو" : "Auto"} value={upgrade.autoTapBoost} />
-                  </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!canBuyNow || lockedByLevel || maxed}
+                    onClick={() => void handleBuyUpgrade(upgrade.id)}
+                  >
+                    {maxed
+                      ? isRtl
+                        ? "مكتملة"
+                        : "Max"
+                      : lockedByLevel
+                        ? `${isRtl ? "يتطلب مستوى" : "Need Lvl"} ${upgrade.unlockLevel}`
+                        : `${isRtl ? "ترقية" : "Upgrade"} ${formatNumber(cost)}`}
+                  </Button>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!canBuy || lockedByLevel || maxed}
-                      onClick={() => void handleBuyUpgrade(upgrade.id)}
-                    >
-                      {maxed
-                        ? isRtl
-                          ? "مكتملة"
-                          : "Max"
-                        : lockedByLevel
-                          ? `${isRtl ? "يتطلب مستوى" : "Need Lvl"} ${upgrade.unlockLevel}`
-                          : `${isRtl ? "ترقية" : "Upgrade"} ${formatNumber(cost)}`}
+                  {upgrade.starsPrice ? (
+                    <Button size="sm" variant="outline" onClick={() => handleStarsUpgrade(upgrade)}>
+                      <Star size={13} className="me-1" />
+                      {isRtl ? `نجوم ${upgrade.starsPrice}` : `Stars ${upgrade.starsPrice}`}
                     </Button>
-
-                    {upgrade.starsPrice ? (
-                      <Button size="sm" variant="outline" onClick={() => handleStarsUpgrade(upgrade)}>
-                        <Star size={13} className="me-1" />
-                        {isRtl ? `نجوم ${upgrade.starsPrice}` : `Stars ${upgrade.starsPrice}`}
-                      </Button>
-                    ) : (
-                      <div className="rounded-lg border border-border/40 bg-secondary/30 px-2 py-1 text-center text-xs text-slate-400">
-                        {isRtl ? "لا يوجد شراء نجوم" : "No stars offer"}
-                      </div>
-                    )}
-                  </div>
+                  ) : (
+                    <div className="rounded-lg border border-border/40 bg-secondary/30 px-2 py-1 text-center text-xs text-slate-400">
+                      {isRtl ? "لا يوجد عرض نجوم" : "No stars offer"}
+                    </div>
+                  )}
                 </div>
               </div>
-            );
-          })}
+            </motion.div>
+          );
+        })}
       </CardContent>
     </Card>
   );
 
   const tasksScreen = (
     <Card className="vt-panel-card">
-      <CardHeader>
+      <CardHeader className="space-y-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <ListChecks size={18} className="text-cyan-300" />
           {t("tasks.title")}
         </CardTitle>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { key: "all" as TaskFilter, ar: "الكل", en: "All" },
+            { key: "DAILY" as TaskFilter, ar: "يومي", en: "Daily" },
+            { key: "SOCIAL" as TaskFilter, ar: "اجتماعي", en: "Social" },
+            { key: "CIPHER" as TaskFilter, ar: "Cipher", en: "Cipher" }
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={cn("vt-filter-chip h-8", taskFilter === item.key && "is-active")}
+              onClick={() => setTaskFilter(item.key)}
+            >
+              {isRtl ? item.ar : item.en}
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <Target size={15} className="text-primary" />
+            <Sparkles size={15} className="text-primary" />
             Daily Cipher
           </div>
           <div className="flex gap-2">
@@ -982,8 +1047,18 @@ export default function App() {
         </div>
 
         <div className="space-y-2">
-          {tasks.map((task) => (
-            <div key={task.id} className="vt-task-row">
+          {filteredTasks.map((task, index) => (
+            <motion.div
+              key={task.id}
+              initial={{ opacity: 0, x: isRtl ? -20 : 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{
+                duration: 0.4,
+                delay: index * 0.05,
+                ease: [0.22, 1, 0.36, 1]
+              }}
+              className="vt-task-row"
+            >
               <div>
                 <div className="font-semibold">{isRtl ? task.titleAr : task.titleEn}</div>
                 <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -999,8 +1074,13 @@ export default function App() {
               >
                 {task.isClaimed ? t("tasks.claimed") : t("tasks.claim")}
               </Button>
-            </div>
+            </motion.div>
           ))}
+          {filteredTasks.length === 0 ? (
+            <div className="rounded-lg border border-border/50 bg-secondary/25 px-3 py-4 text-center text-xs text-slate-300">
+              {isRtl ? "لا توجد مهام ضمن هذا القسم حالياً." : "No tasks in this section right now."}
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -1015,6 +1095,27 @@ export default function App() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: t("referrals.level1"), value: String(referralStats?.level1Count ?? referral?.directReferrals ?? 0), index: 0 },
+            { label: t("referrals.level2"), value: String(referralStats?.level2Count ?? 0), index: 1 },
+            { label: t("referrals.estimatedRewards"), value: formatNumber(referralStats?.estimatedRewards ?? 0), index: 2 }
+          ].map(({ label, value, index }) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 12, scale: 0.94 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{
+                duration: 0.4,
+                delay: index * 0.08,
+                ease: [0.22, 1, 0.36, 1]
+              }}
+            >
+              <Metric label={label} value={value} />
+            </motion.div>
+          ))}
+        </div>
+
         <div className="rounded-xl border border-border/60 bg-secondary/20 p-3">
           <div className="text-xs text-slate-300">{t("referrals.code")}</div>
           <div className="mt-2 flex items-center justify-between gap-2">
@@ -1037,29 +1138,39 @@ export default function App() {
           <p className="mt-2 truncate text-xs text-slate-300/80">{referralLink || (isRtl ? "رابط الدعوة غير مفعّل بعد." : "Invite link not configured yet.")}</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <Metric
-            label={t("referrals.level1")}
-            value={String(referralStats?.level1Count ?? referral?.directReferrals ?? 0)}
-          />
-          <Metric label={t("referrals.level2")} value={String(referralStats?.level2Count ?? 0)} />
-          <Metric
-            label={t("referrals.estimatedRewards")}
-            value={formatNumber(referralStats?.estimatedRewards ?? 0)}
-          />
+        <div className="rounded-xl border border-border/60 bg-card/45 p-3">
+          <p className="mb-2 text-sm font-semibold">{isRtl ? "كيف تعمل الدعوة؟" : "How referral works"}</p>
+          <div className="space-y-2 text-xs text-slate-300">
+            <div className="rounded-lg bg-secondary/25 px-2 py-1.5">
+              1. {isRtl ? "انسخ رابط الدعوة وأرسله لصديقك." : "Copy your invite link and send it."}
+            </div>
+            <div className="rounded-lg bg-secondary/25 px-2 py-1.5">
+              2. {isRtl ? "الصديق يفتح البوت من نفس الرابط." : "Friend opens the bot using your link."}
+            </div>
+            <div className="rounded-lg bg-secondary/25 px-2 py-1.5">
+              3. {isRtl ? "يُضاف 1000 نقطة لكل طرف تلقائيًا." : "Both sides get 1000 points automatically."}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border border-border/60 bg-card/45 p-3">
           <p className="mb-2 text-sm font-semibold">{isRtl ? "أفضل الأصدقاء" : "Top Friends"}</p>
           <div className="space-y-1">
-            {(referralStats?.referrals ?? []).slice(0, 10).map((item) => (
-              <div
+            {(referralStats?.referrals ?? []).slice(0, 10).map((item, index) => (
+              <motion.div
                 key={item.id}
+                initial={{ opacity: 0, x: isRtl ? -12 : 12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{
+                  duration: 0.3,
+                  delay: index * 0.03,
+                  ease: [0.22, 1, 0.36, 1]
+                }}
                 className="flex items-center justify-between rounded-lg bg-secondary/25 px-2 py-1.5 text-sm"
               >
                 <span>{item.name}</span>
                 <span className="font-semibold">{formatNumber(item.points)}</span>
-              </div>
+              </motion.div>
             ))}
             {(referralStats?.referrals?.length ?? 0) === 0 ? (
               <p className="text-xs text-muted-foreground">{isRtl ? "لا توجد بيانات حالياً." : "No data yet."}</p>
@@ -1101,22 +1212,61 @@ export default function App() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {leaderboard.map((item) => (
-          <div
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {topThreeLeaders.map((item, index) => (
+            <motion.div
+              key={`top-${item.id}`}
+              initial={{ opacity: 0, y: 16, scale: 0.92 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{
+                duration: 0.5,
+                delay: index * 0.1,
+                ease: [0.22, 1, 0.36, 1]
+              }}
+              className={cn(
+                "rounded-xl border p-2 text-center",
+                item.rank === 1
+                  ? "border-yellow-300/70 bg-yellow-500/15"
+                  : item.rank === 2
+                    ? "border-slate-300/60 bg-slate-500/10"
+                    : "border-orange-300/60 bg-orange-500/10"
+              )}
+            >
+              <div className="text-lg">{rankMark(item.rank)}</div>
+              <p className="truncate text-xs font-bold">{item.name}</p>
+              <p className="text-xs text-slate-200">{formatNumber(item.points)}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {restLeaders.map((item, index) => (
+          <motion.div
             key={`${item.id}-${item.rank}`}
+            initial={{ opacity: 0, x: isRtl ? -16 : 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{
+              duration: 0.4,
+              delay: index * 0.04,
+              ease: [0.22, 1, 0.36, 1]
+            }}
             className={cn(
               "flex items-center justify-between rounded-xl border border-border/60 p-3",
               item.rank <= 3 && "bg-amber-500/10"
             )}
           >
             <div className="flex items-center gap-3">
-              <Badge>{rankMark(item.rank)}</Badge>
+              <Badge>{item.rank}</Badge>
               <span className="font-semibold">{item.name}</span>
             </div>
             <span className="font-bold">{formatNumber(item.points)}</span>
-          </div>
+          </motion.div>
         ))}
+        {leaderboard.length === 0 ? (
+          <div className="rounded-lg border border-border/50 bg-secondary/25 px-3 py-4 text-center text-xs text-slate-300">
+            {isRtl ? "لا توجد بيانات صدارة حالياً." : "No leaderboard data yet."}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -1218,7 +1368,7 @@ export default function App() {
 
   return (
     <div className="vt-shell">
-      <div className="vt-grid-overlay pointer-events-none absolute inset-0 -z-10" />
+      <div className="vt-backdrop-grid pointer-events-none absolute inset-0 -z-10" />
 
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
@@ -1228,14 +1378,14 @@ export default function App() {
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: tabDirection > 0 ? -18 : 18, scale: 0.992 }}
           transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-          className="space-y-3"
+          className="vt-screen"
         >
           {currentScreen}
         </motion.div>
       </AnimatePresence>
 
-      <nav className="vt-bottom-dock">
-        <div className="vt-bottom-row">
+      <nav className="vt-bottom-nav">
+        <div className="vt-bottom-nav-row">
           {NAV_ITEMS.map((item) => {
             const active = activeTab === item.key;
             const label = isRtl ? item.labelAr : item.labelEn;
@@ -1244,18 +1394,18 @@ export default function App() {
               <button
                 key={item.key}
                 type="button"
-                className={cn("vt-bottom-item", active && "is-active")}
+                className={cn("vt-bottom-nav-item", active && "is-active")}
                 onClick={() => handleTabChange(item.key)}
               >
-                <Icon size={18} className="opacity-90" />
+                <Icon size={18} />
                 <span>{label}</span>
               </button>
             );
           })}
         </div>
-        <div className="vt-bottom-indicator-wrap">
+        <div className="vt-bottom-nav-track">
           <motion.span
-            className="vt-bottom-indicator"
+            className="vt-bottom-nav-indicator"
             transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.38 }}
             style={{
               width: `calc((100% - 16px) / ${NAV_ITEMS.length})`,
@@ -1278,10 +1428,10 @@ export default function App() {
               exit={{ opacity: 0 }}
             />
             <motion.div
-              initial={{ opacity: 0, y: 36 }}
+              initial={{ opacity: 0, y: 48 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 28 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
+              exit={{ opacity: 0, y: 36 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
               className="vt-settings-modal"
             >
               <div className="flex items-center justify-between px-1 pb-2">
@@ -1290,7 +1440,7 @@ export default function App() {
                 </p>
                 <button
                   type="button"
-                  className="vt-toolbar-btn h-8 w-8"
+                  className="vt-icon-btn h-8 w-8"
                   onClick={() => setSettingsOpen(false)}
                 >
                   <span className="text-lg leading-none">×</span>
@@ -1321,6 +1471,26 @@ function MiniStat({
         <span>{label}</span>
       </div>
       <div className="truncate text-sm font-bold">{value}</div>
+    </div>
+  );
+}
+
+function StatBox({
+  label,
+  value,
+  icon
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="vt-stat-box">
+      <div className="vt-stat-head">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <strong>{value}</strong>
     </div>
   );
 }

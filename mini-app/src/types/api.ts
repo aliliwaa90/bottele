@@ -13,6 +13,8 @@ export type User = {
   comboCount: number;
   comboMultiplier: number;
   pph: number;
+  autoTapPerHour: number;
+  starsSpent: number;
   totalTaps: string;
   referralCode: string;
   walletAddress?: string | null;
@@ -25,11 +27,18 @@ export type Upgrade = {
   titleEn: string;
   descriptionAr: string;
   descriptionEn: string;
+  icon: string;
+  imageUrl?: string | null;
+  category: string;
   baseCost: number;
   maxLevel: number;
+  difficulty: number;
+  unlockLevel: number;
+  starsPrice?: number | null;
   pphBoost: number;
   tapBoost: number;
   energyBoost: number;
+  autoTapBoost: number;
   currentLevel: number;
   nextCost: number | null;
 };

@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/", label: "الرئيسية" },
   { href: "/users", label: "المستخدمون" },
+  { href: "/upgrades", label: "الترقيات" },
   { href: "/tasks", label: "المهام" },
   { href: "/events", label: "الأحداث" },
   { href: "/notifications", label: "الإذاعة" },
@@ -45,13 +46,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 md:px-8">
+    <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 md:px-8" dir="rtl">
       <header className="mb-6 overflow-hidden rounded-3xl border border-sky-200/70 bg-gradient-to-l from-sky-600 via-cyan-600 to-blue-700 p-5 text-white shadow-2xl shadow-sky-900/25">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-extrabold md:text-3xl">VaultTap Control Center</h1>
             <p className="mt-1 text-sm text-sky-100 md:text-base">
-              إدارة ذكية للمستخدمين، المهام، الإذاعات، الأحداث الخاصة ولقطات الإيردروب.
+              إدارة ذكية للمستخدمين والمهام والأحداث والإذاعات والترقيات المدفوعة بالنجوم.
             </p>
           </div>
           <Button
@@ -60,7 +61,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             onClick={() => void logout()}
             className="border-0 bg-white/95 font-bold text-sky-700 hover:bg-white"
           >
-            {loggingOut ? "جارٍ الخروج..." : "تسجيل خروج"}
+            {loggingOut ? "جارٍ تسجيل الخروج..." : "تسجيل خروج"}
           </Button>
         </div>
       </header>

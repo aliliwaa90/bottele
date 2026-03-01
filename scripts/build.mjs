@@ -47,14 +47,12 @@ if (deployTarget.includes("-bot") || deployTarget.endsWith("bot") || deployTarge
   process.exit(0);
 }
 
+if (deployTarget === "bottele" || deployTarget === "vaulttap") {
+  run("npm", ["run", "build", "--workspace", "@vaulttap/mini-app"]);
+  process.exit(0);
+}
+
 console.warn(
   `[VaultTap] Unknown deploy target (VT_DEPLOY_TARGET="${forcedTarget}", VERCEL_PROJECT_NAME="${process.env.VERCEL_PROJECT_NAME ?? ""}"), building web targets only.`
 );
-run("npx", [
-  "turbo",
-  "run",
-  "build",
-  "--filter=@vaulttap/mini-app",
-  "--filter=@vaulttap/backend",
-  "--filter=@vaulttap/admin"
-]);
+run("npm", ["run", "build", "--workspace", "@vaulttap/mini-app"]);

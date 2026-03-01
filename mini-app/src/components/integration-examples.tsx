@@ -57,7 +57,9 @@ export function StatsSection() {
           <PulsingGlow>
             <div className="text-center">
               <p className="text-gray-300 text-sm mb-2">{stat.label}</p>
-              <CounterAnimation value={stat.value} className="text-3xl font-bold text-white" />
+              <div className="text-3xl font-bold text-white">
+                <CounterAnimation from={0} to={stat.value} />
+              </div>
             </div>
           </PulsingGlow>
         </BounceCard>
@@ -69,7 +71,7 @@ export function StatsSection() {
 /**
  * EXAMPLE 3: Task Completion with Animation
  */
-export function TaskCard({ task }: { task: any }) {
+export function TaskCard({ task }: { task: { name: string; reward: number } }) {
   const [claimed, setClaimed] = React.useState(false);
   const [showSuccess, setShowSuccess] = React.useState(false);
 
@@ -82,7 +84,7 @@ export function TaskCard({ task }: { task: any }) {
   return (
     <SlideIn direction="up">
       <div className="card card-hover p-4 rounded-lg mb-3 relative">
-        <ShakeAnimation isActive={claimed}>
+        <ShakeAnimation trigger={claimed}>
           <div className="flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-white">{task.name}</h3>
@@ -131,14 +133,13 @@ export function LeaderboardEntry({
         
         <div className="flex-1">
           <h3 className="font-semibold text-white">{username}</h3>
-          <ProgressRing percentage={percentage} size={30} strokeWidth={2} />
+          <ProgressRing percent={percentage} size={30} width={2} />
         </div>
 
         <div className="text-right">
-          <CounterAnimation
-            value={score}
-            className="text-xl font-bold text-pink-400"
-          />
+          <div className="text-xl font-bold text-pink-400">
+            <CounterAnimation from={0} to={score} />
+          </div>
           <p className="text-xs text-gray-400">points</p>
         </div>
       </div>

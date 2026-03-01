@@ -12,17 +12,19 @@ type DashboardState = {
   totalUsers: number;
   activeToday: number;
   totalPoints: string;
+  totalStarsSpent: number;
   snapshotsCount: number;
   activeEvents: number;
-  topUsers: Array<{ id: string; name: string; points: string; pph: number }>;
+  topUsers: Array<{ id: string; name: string; points: string; pph: number; autoTapPerHour: number }>;
 };
 
 const metricCards = [
   { key: "totalUsers", label: "إجمالي المستخدمين", accent: "from-sky-500 to-cyan-500" },
   { key: "activeToday", label: "نشطون اليوم", accent: "from-emerald-500 to-teal-500" },
   { key: "totalPoints", label: "إجمالي النقاط", accent: "from-indigo-500 to-blue-500" },
-  { key: "snapshotsCount", label: "لقطات الإيردروب", accent: "from-amber-500 to-orange-500" },
-  { key: "activeEvents", label: "الأحداث النشطة", accent: "from-fuchsia-500 to-pink-500" }
+  { key: "totalStarsSpent", label: "إجمالي النجوم المصروفة", accent: "from-amber-500 to-orange-500" },
+  { key: "snapshotsCount", label: "لقطات الإيردروب", accent: "from-fuchsia-500 to-pink-500" },
+  { key: "activeEvents", label: "الأحداث النشطة", accent: "from-violet-500 to-purple-500" }
 ] as const;
 
 export function DashboardOverview() {
@@ -59,7 +61,8 @@ export function DashboardOverview() {
     () =>
       (data?.topUsers ?? []).map((user) => ({
         name: user.name.slice(0, 14),
-        points: Number(user.points)
+        points: Number(user.points),
+        autoTapPerHour: user.autoTapPerHour
       })),
     [data]
   );
@@ -73,8 +76,8 @@ export function DashboardOverview() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="space-y-6" dir="rtl">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {metricCards.map((metric) => (
           <MetricCard
             key={metric.key}

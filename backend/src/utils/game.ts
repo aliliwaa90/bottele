@@ -1,7 +1,14 @@
-export function calculateUpgradeCost(baseCost: number, currentLevel: number): number {
+export function calculateUpgradeCost(
+  baseCost: number,
+  currentLevel: number,
+  difficulty = 1.08,
+  maxLevel = 105
+): number {
   const nextLevel = currentLevel + 1;
-  const scaled = baseCost * Math.pow(nextLevel, 1.32);
-  return Math.floor(scaled);
+  const normalized = nextLevel / Math.max(20, maxLevel);
+  const curve = Math.pow(nextLevel, 1.34) * (1 + normalized * 1.7);
+  const exponential = Math.pow(difficulty, Math.max(0, nextLevel - 1));
+  return Math.max(1, Math.floor(baseCost * curve * exponential));
 }
 
 export function refillEnergy(current: number, max: number, elapsedMinutes: number): number {

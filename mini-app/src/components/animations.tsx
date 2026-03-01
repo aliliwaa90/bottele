@@ -40,7 +40,7 @@ export const PulsingGlow: React.FC<{
   children: React.ReactNode;
   color?: string;
   intensity?: number;
-}> = ({ children, color = "purple", intensity = 1 }) => {
+}> = ({ children, color: _color = "purple", intensity = 1 }) => {
   return (
     <motion.div
       className="relative"
@@ -123,9 +123,11 @@ export const GradientPulse: React.FC<{ children: React.ReactNode }> = ({ childre
 export const StaggeredList: React.FC<{
   children: React.ReactNode[];
   delay?: number;
-}> = ({ children, delay = 0.1 }) => {
+  className?: string;
+}> = ({ children, delay = 0.1, className = "" }) => {
   return (
     <motion.div
+      className={className}
       initial="hidden"
       animate="visible"
       variants={{

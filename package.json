@@ -28,7 +28,10 @@
     "dev:mini-app": "npm run dev --workspace @vaulttap/mini-app",
     "dev:backend": "npm run dev --workspace @vaulttap/backend",
     "dev:bot": "npm run dev --workspace @vaulttap/bot",
-    "dev:admin": "npm run dev --workspace @vaulttap/admin"
+    "dev:admin": "npm run dev --workspace @vaulttap/admin",
+    "clean": "rmdir /s /q node_modules && del /s /q package-lock.json && npm cache clean --force",
+    "reinstall": "npm run clean && npm install",
+    "postinstall": "echo \"skip postinstall in CI\""
   },
   "devDependencies": {
     "@types/node": "^22.13.5",

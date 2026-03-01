@@ -34,6 +34,8 @@ model User {
   comboCount       Int              @default(0)
   comboMultiplier  Float            @default(1)
   pph              Int              @default(0)
+  autoTapPerHour   Int              @default(0)
+  starsSpent       Int              @default(0)
   totalTaps        BigInt           @default(0)
   walletAddress    String?
   referralCode     String           @unique
@@ -49,6 +51,7 @@ model User {
   upgrades         UserUpgrade[]
   tapEvents        TapEvent[]
   snapshots        AirdropSnapshot[]
+  starsPurchases   StarsPurchase[]
 
   @@index([points])
 }
@@ -60,11 +63,18 @@ model Upgrade {
   titleEn       String
   descriptionAr String
   descriptionEn String
+  icon          String        @default("⚙️")
+  imageUrl      String?
+  category      String        @default("core")
   baseCost      Int
-  maxLevel      Int           @default(20)
+  maxLevel      Int           @default(105)
+  difficulty    Float         @default(1.08)
+  unlockLevel   Int           @default(1)
+  starsPrice    Int?
   pphBoost      Int           @default(0)
   tapBoost      Int           @default(0)
   energyBoost   Int           @default(0)
+  autoTapBoost  Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   userUpgrades  UserUpgrade[]
@@ -146,4 +156,19 @@ model AirdropSnapshot {
   user        User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([batchTag])
+}
+
+model StarsPurchase {
+  id                      String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId                  String   @db.ObjectId
+  telegramPaymentChargeId String   @unique
+  providerPaymentChargeId String?
+  payload                 String
+  stars                   Int
+  rewardType              String
+  rewardValue             Int      @default(0)
+  createdAt               DateTime @default(now())
+  user                    User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId, createdAt])
 }

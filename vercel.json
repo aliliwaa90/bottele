@@ -1,11 +1,11 @@
 {
-  "buildCommand": "npm ci --legacy-peer-deps && npm run build:all",
-  "installCommand": "npm ci --legacy-peer-deps",
+  "outputDirectory": "mini-app/dist",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install --legacy-peer-deps",
   "env": {
     "NODE_ENV": "production",
     "NODE_OPTIONS": "--max-old-space-size=3096",
     "VITE_API_URL": "https://bottele-backend.vercel.app/api",
     "VITE_SOCKET_URL": "https://bottele-backend.vercel.app"
-  },
-  "nodeVersion": "20.x"
+  }
 }
