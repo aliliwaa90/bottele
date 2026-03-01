@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bot,
@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { TonConnectButton } from "@tonconnect/ui-react";
 import { toast } from "sonner";
 import WebApp from "@twa-dev/sdk";
 
@@ -47,7 +46,7 @@ const SUPPORTED_LANGS = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
 type BoardType = "global" | "weekly" | "friends";
 type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard";
 
-type FloatingGain = { id: number; value: number; left: number; top: number };
+type FloatingGain = { id: number; value: number; left: number; top: number; burst: boolean };
 type ReferralStats = {
   level1Count: number;
   level2Count: number;
@@ -70,27 +69,58 @@ const NAV_ITEMS: NavItem[] = [
   { key: "leaderboard", labelAr: "الصدارة", labelEn: "Top", icon: Trophy }
 ];
 
-const TAP_FLUSH_DELAY_MS = 24;
+const TAP_FLUSH_DELAY_MS = 36;
 const TURBO_TAP_SIZE = 10;
 const TURBO_COOLDOWN_MS = 4500;
 const TAP_FLUSH_BATCH = 120;
+const TAP_FLUSH_IMMEDIATE_THRESHOLD = 14;
 
-function playTapSound() {
+type TonWalletConnectProps = {
+  className?: string;
+  manifestUrl: string;
+};
+
+const TonWalletConnectLazy = lazy(async () => {
+  const module = await import("@tonconnect/ui-react");
+  const Component = ({ className, manifestUrl }: TonWalletConnectProps) => (
+    <module.TonConnectUIProvider manifestUrl={manifestUrl}>
+      <module.TonConnectButton className={className} />
+    </module.TonConnectUIProvider>
+  );
+  return { default: Component };
+});
+
+type AudioContextCtor = typeof AudioContext;
+let sharedAudioContext: AudioContext | null = null;
+
+function getAudioContextSafe(): AudioContext | null {
+  if (sharedAudioContext) return sharedAudioContext;
   const AudioContextClass =
     window.AudioContext ||
-    ((window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext ?? null);
-  if (!AudioContextClass) return;
-  const context = new AudioContextClass();
+    ((window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ?? null);
+  if (!AudioContextClass) return null;
+  sharedAudioContext = new AudioContextClass();
+  return sharedAudioContext;
+}
+
+function playTapSound() {
+  const context = getAudioContextSafe();
+  if (!context) return;
+
+  if (context.state === "suspended") {
+    void context.resume().catch(() => undefined);
+  }
+
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   oscillator.type = "triangle";
   oscillator.frequency.value = 420;
-  gain.gain.setValueAtTime(0.11, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.1);
+  gain.gain.setValueAtTime(0.07, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.07);
   oscillator.connect(gain);
   gain.connect(context.destination);
   oscillator.start();
-  oscillator.stop(context.currentTime + 0.1);
+  oscillator.stop(context.currentTime + 0.07);
 }
 
 function rankMark(rank: number) {
@@ -137,8 +167,16 @@ function addToNumericString(value: string, increment: number) {
   }
 }
 
+function formatFullNumber(value: number | string): string {
+  const num = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(num)) return "0";
+  return new Intl.NumberFormat("en-US").format(Math.floor(num));
+}
+
 export default function App() {
   const { t, i18n } = useTranslation();
+  const tonManifestUrl =
+    import.meta.env.VITE_TON_MANIFEST_URL ?? "https://bottele-mini-app.vercel.app/tonconnect-manifest.json";
   const socketEnabled = import.meta.env.VITE_DISABLE_SOCKET !== "true";
   const botUsername =
     (import.meta.env.VITE_BOT_USERNAME ?? import.meta.env.VITE_TELEGRAM_BOT_USERNAME ?? "")
@@ -153,6 +191,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
+  const [tabDirection, setTabDirection] = useState(1);
   const [leaderboardType, setLeaderboardType] = useState<BoardType>("global");
   const [referral, setReferral] = useState<{ directReferrals: number; referralCode: string } | null>(null);
   const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
@@ -172,6 +211,7 @@ export default function App() {
   const pendingTapsRef = useRef(0);
   const flushingTapsRef = useRef(false);
   const tapFlushTimerRef = useRef<number | null>(null);
+  const lastSoundAtRef = useRef(0);
 
   const isRtl = RTL_LANGS.has(i18n.language);
   const displayName =
@@ -219,6 +259,13 @@ export default function App() {
     const index = NAV_ITEMS.findIndex((item) => item.key === activeTab);
     return index < 0 ? 0 : index;
   }, [activeTab]);
+
+  const handleTabChange = (nextTab: ActiveTab) => {
+    if (nextTab === activeTab) return;
+    const nextIndex = NAV_ITEMS.findIndex((item) => item.key === nextTab);
+    setTabDirection(nextIndex > navActiveIndex ? 1 : -1);
+    setActiveTab(nextTab);
+  };
 
   useEffect(() => {
     userRef.current = user;
@@ -330,7 +377,7 @@ export default function App() {
   }, [leaderboardType, user?.id]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNowTick(Date.now()), 500);
+    const interval = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -342,18 +389,19 @@ export default function App() {
   const activeEventMultiplier = () =>
     activeEvents.reduce((highest, event) => Math.max(highest, event.multiplier), 1);
 
-  const addFloatingGain = (value: number) => {
+  const addFloatingGain = (value: number, burst = false) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
     const gain = {
       id,
       value,
       left: 46 + Math.random() * 12,
-      top: 41 + Math.random() * 14
+      top: 41 + Math.random() * 14,
+      burst
     };
-    setFloatingGains((prev) => [...prev, gain]);
+    setFloatingGains((prev) => [...prev.slice(-7), gain]);
     window.setTimeout(() => {
       setFloatingGains((prev) => prev.filter((item) => item.id !== id));
-    }, 900);
+    }, burst ? 1050 : 820);
   };
 
   const scheduleTapFlush = (delay = TAP_FLUSH_DELAY_MS) => {
@@ -430,7 +478,7 @@ export default function App() {
     addFloatingGain(estimatedGain);
 
     pendingTapsRef.current += realTaps;
-    if (pendingTapsRef.current >= 2) {
+    if (pendingTapsRef.current >= TAP_FLUSH_IMMEDIATE_THRESHOLD) {
       void flushTapQueue();
     } else {
       scheduleTapFlush();
@@ -446,13 +494,17 @@ export default function App() {
     }
 
     setTapAnimating(true);
-    playTapSound();
+    const now = Date.now();
+    if (now - lastSoundAtRef.current > 42) {
+      playTapSound();
+      lastSoundAtRef.current = now;
+    }
     try {
       WebApp.HapticFeedback.impactOccurred("light");
     } catch {
       // Ignore haptic issues outside Telegram clients.
     }
-    setTimeout(() => setTapAnimating(false), 180);
+    setTimeout(() => setTapAnimating(false), 120);
   };
 
   const handleTurboTap = () => {
@@ -468,6 +520,16 @@ export default function App() {
       return;
     }
 
+    const snapshot = userRef.current;
+    if (snapshot) {
+      addFloatingGain(
+        Math.max(
+          1,
+          Math.floor(TURBO_TAP_SIZE * snapshot.tapPower * snapshot.comboMultiplier * activeEventMultiplier())
+        ),
+        true
+      );
+    }
     setTurboCooldownUntil(now + TURBO_COOLDOWN_MS);
     setTapAnimating(true);
     playTapSound();
@@ -476,7 +538,7 @@ export default function App() {
     } catch {
       // Ignore haptic issues outside Telegram clients.
     }
-    setTimeout(() => setTapAnimating(false), 220);
+    setTimeout(() => setTapAnimating(false), 180);
   };
 
   const handleBuyUpgrade = async (upgradeId: string) => {
@@ -678,13 +740,13 @@ export default function App() {
           </span>
           <span className="vt-player-chip__name">{displayName}</span>
         </div>
-        <button type="button" className="vt-toolbar-btn" onClick={() => setActiveTab("leaderboard")}>
+        <button type="button" className="vt-toolbar-btn" onClick={() => handleTabChange("leaderboard")}>
           <Trophy size={18} />
         </button>
       </header>
 
       <div className="vt-points-stack">
-        <p className="vt-points-main">{formatNumber(user.points)}</p>
+        <p className="vt-points-main">{formatFullNumber(user.points)}</p>
         <p className="vt-points-sub">{isRtl ? "إجمالي النقاط المكتسبة" : "Total earned points"}</p>
         <div className="mt-2 rounded-xl border border-border/50 bg-secondary/30 px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between text-[11px] text-slate-300">
@@ -713,17 +775,33 @@ export default function App() {
         </div>
       </div>
 
+      <div className="vt-kpi-row">
+        <div className="vt-kpi-item">
+          <p>{isRtl ? "قوة النقر" : "Tap Power"}</p>
+          <strong>+{user.tapPower}</strong>
+        </div>
+        <div className="vt-kpi-item">
+          <p>{t("stats.combo")}</p>
+          <strong>{user.comboMultiplier.toFixed(2)}x</strong>
+        </div>
+        <div className="vt-kpi-item">
+          <p>{t("stats.pph")}</p>
+          <strong>{formatNumber(user.pph)}</strong>
+        </div>
+      </div>
+
       <div className="vt-tap-stage">
         {floatingGains.map((gain) => (
           <motion.div
             key={gain.id}
-            initial={{ opacity: 0, y: 12, scale: 0.85 }}
-            animate={{ opacity: 1, y: -26, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="vt-floating-gain"
+            initial={{ opacity: 0, y: 14, scale: 0.82 }}
+            animate={{ opacity: 1, y: gain.burst ? -34 : -26, scale: gain.burst ? 1.1 : 1 }}
+            exit={{ opacity: 0, y: gain.burst ? -50 : -36 }}
+            className={cn("vt-floating-gain", gain.burst && "is-burst")}
             style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
           >
-            +{gain.value}
+            <span>+{gain.value}</span>
+            {gain.burst ? <span className="vt-floating-ring" /> : null}
           </motion.div>
         ))}
 
@@ -1070,7 +1148,15 @@ export default function App() {
           description={isRtl ? "ربط TON وطلب الأيردروب" : "Connect TON and request airdrop"}
         >
           <div className="space-y-2">
-            <TonConnectButton className="!w-full" />
+            <Suspense
+              fallback={
+                <div className="h-11 w-full rounded-lg border border-border/60 bg-secondary/30 text-center text-xs leading-[44px] text-slate-300">
+                  {isRtl ? "تحميل المحفظة..." : "Loading wallet..."}
+                </div>
+              }
+            >
+              <TonWalletConnectLazy className="!w-full" manifestUrl={tonManifestUrl} />
+            </Suspense>
             <Input
               placeholder={t("wallet.placeholder")}
               value={walletAddress}
@@ -1134,13 +1220,14 @@ export default function App() {
     <div className="vt-shell">
       <div className="vt-grid-overlay pointer-events-none absolute inset-0 -z-10" />
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
+          custom={tabDirection}
+          initial={{ opacity: 0, x: tabDirection > 0 ? 24 : -24, scale: 0.992 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: tabDirection > 0 ? -18 : 18, scale: 0.992 }}
+          transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
           className="space-y-3"
         >
           {currentScreen}
@@ -1158,7 +1245,7 @@ export default function App() {
                 key={item.key}
                 type="button"
                 className={cn("vt-bottom-item", active && "is-active")}
-                onClick={() => setActiveTab(item.key)}
+                onClick={() => handleTabChange(item.key)}
               >
                 <Icon size={18} className="opacity-90" />
                 <span>{label}</span>
@@ -1167,8 +1254,9 @@ export default function App() {
           })}
         </div>
         <div className="vt-bottom-indicator-wrap">
-          <span
+          <motion.span
             className="vt-bottom-indicator"
+            transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.38 }}
             style={{
               width: `calc((100% - 16px) / ${NAV_ITEMS.length})`,
               transform: `translateX(calc(${navActiveIndex} * 100%))`
