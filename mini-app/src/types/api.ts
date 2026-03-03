@@ -15,9 +15,17 @@ export type User = {
   pph: number;
   autoTapPerHour: number;
   starsSpent: number;
+  isBanned?: boolean;
+  banReason?: string | null;
+  bannedAt?: string | null;
   totalTaps: string;
   referralCode: string;
   walletAddress?: string | null;
+};
+
+export type UiSettings = {
+  tapIconMode: "emoji" | "image";
+  tapIconValue: string;
 };
 
 export type Upgrade = {

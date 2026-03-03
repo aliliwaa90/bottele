@@ -1,21 +1,12 @@
-﻿import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+﻿import {
+  Suspense, lazy, useEffect, useMemo, useRef, useState,
+  useCallback, memo,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Bot,
-  Coins,
-  Crown,
-  Globe,
-  Home,
-  ListChecks,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Star,
-  TrendingUp,
-  Trophy,
-  Users,
-  Wallet,
-  Zap
+  Bot, Coins, Crown, Globe, Home, ListChecks, Settings,
+  ShieldCheck, Sparkles, Star, TrendingUp, Trophy, Users,
+  Wallet, Zap, Flame, Award, ChevronUp,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -25,24 +16,33 @@ import WebApp from "@twa-dev/sdk";
 import { api } from "@/lib/api";
 import { connectSocket, disconnectSocket } from "@/lib/socket";
 import {
-  getTelegramInitData,
-  getTelegramUser,
-  initTelegram,
-  isTelegramWebApp,
-  openTelegramInvoice
+  getTelegramInitData, getTelegramUser, initTelegram,
+  getTelegramStartParam, isTelegramWebApp, openTelegramInvoice,
 } from "@/lib/telegram";
 import { cn, formatNumber } from "@/lib/utils";
-import type { LeaderboardItem, Task, Upgrade, User } from "@/types/api";
+import type { LeaderboardItem, Task, UiSettings, Upgrade, User } from "@/types/api";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════════ */
+const RTL_LANGS                     = new Set(["ar", "fa"]);
+const SUPPORTED_LANGS               = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
+const TAP_FLUSH_DELAY_MS            = 18;
+const TURBO_TAP_SIZE                = 10;
+const TURBO_COOLDOWN_MS             = 4500;
+const TAP_FLUSH_BATCH               = 500;
+const TAP_FLUSH_IMMEDIATE_THRESHOLD = 6;
+const ENERGY_WARNING_COOLDOWN_MS    = 900;
+const PENDING_REFERRAL_KEY          = "vt-referral-code";
+const COMBO_DECAY_MS                = 3200;
+const STREAK_BONUS_THRESHOLD        = 5;
 
-const RTL_LANGS = new Set(["ar", "fa"]);
-const SUPPORTED_LANGS = ["ar", "en", "ru", "tr", "es", "fa", "id"] as const;
-
-type BoardType = "global" | "weekly" | "friends";
-type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard";
-type TaskFilter = "all" | "DAILY" | "SOCIAL" | "CIPHER";
-
+/* ═══════════════════════════════════════════════════════════════════
+   TYPES
+═══════════════════════════════════════════════════════════════════ */
+type BoardType    = "global" | "weekly" | "friends";
+type ActiveTab    = "home" | "upgrades" | "tasks" | "friends" | "leaderboard";
+type TaskFilter   = "all" | "DAILY" | "SOCIAL" | "CIPHER";
 type FloatingGain = { id: number; value: number; left: number; top: number; burst: boolean };
 type ReferralStats = {
   level1Count: number;
@@ -50,305 +50,558 @@ type ReferralStats = {
   estimatedRewards: number;
   referrals: Array<{ id: string; name: string; points: string }>;
 };
+type NavItem = { key: ActiveTab; labelAr: string; labelEn: string; icon: LucideIcon };
+type Achievement = { id: string; title: string; icon: string; ts: number };
 
-type NavItem = {
-  key: ActiveTab;
-  labelAr: string;
-  labelEn: string;
-  icon: LucideIcon;
-};
+/* ═══════════════════════════════════════════════════════════════════
+   CANVAS PARTICLE SYSTEM — runs entirely off React render cycle
+═══════════════════════════════════════════════════════════════════ */
+interface Particle {
+  x: number; y: number;
+  vx: number; vy: number;
+  life: number; maxLife: number;
+  size: number; color: string;
+  burst: boolean;
+}
 
-const NAV_ITEMS: NavItem[] = [
-  { key: "home",        labelAr: "الرئيسية", labelEn: "Home",    icon: Home },
-  { key: "upgrades",   labelAr: "المتجر",   labelEn: "Store",   icon: TrendingUp },
-  { key: "tasks",      labelAr: "المهام",   labelEn: "Tasks",   icon: ListChecks },
-  { key: "friends",    labelAr: "الأصدقاء", labelEn: "Friends", icon: Users },
-  { key: "leaderboard",labelAr: "الصدارة",  labelEn: "Top",     icon: Trophy }
+const PARTICLE_COLORS = [
+  "#fbbf24","#f59e0b","#34d399","#22d3ee",
+  "#a78bfa","#f472b6","#fb923c","#ffffff",
 ];
 
-const TAP_FLUSH_DELAY_MS             = 18;
-const TURBO_TAP_SIZE                 = 10;
-const TURBO_COOLDOWN_MS              = 4500;
-const TAP_FLUSH_BATCH                = 400;
-const TAP_FLUSH_IMMEDIATE_THRESHOLD  = 6;
-const ENERGY_WARNING_COOLDOWN_MS     = 900;
+function createParticleBurst(
+  canvas: HTMLCanvasElement,
+  x: number, y: number,
+  count: number, burst: boolean,
+) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const particles: Particle[] = [];
+  for (let i = 0; i < count; i++) {
+    const angle  = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+    const speed  = burst ? 4 + Math.random() * 7 : 1.5 + Math.random() * 3.5;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - (burst ? 3 : 1),
+      life: 1,
+      maxLife: burst ? 0.016 : 0.022,
+      size: burst ? 3 + Math.random() * 4 : 2 + Math.random() * 2,
+      color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)] ?? "#fbbf24",
+      burst,
+    });
+  }
+  let rafId = 0;
+  const tick = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let alive = false;
+    for (const p of particles) {
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.vy += 0.18;
+      p.vx *= 0.97;
+      p.life -= p.maxLife;
+      if (p.life <= 0) continue;
+      alive = true;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle   = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (alive) rafId = requestAnimationFrame(tick);
+  };
+  rafId = requestAnimationFrame(tick);
+  setTimeout(() => cancelAnimationFrame(rafId), burst ? 1400 : 950);
+}
 
-// ─── Lazy TON Wallet ──────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════════
+   NAV ITEMS
+═══════════════════════════════════════════════════════════════════ */
+const NAV_ITEMS: NavItem[] = [
+  { key: "home",        labelAr: "الرئيسية", labelEn: "Home",    icon: Home        },
+  { key: "upgrades",   labelAr: "الترقيات", labelEn: "Store",   icon: TrendingUp  },
+  { key: "tasks",      labelAr: "المهام",   labelEn: "Tasks",   icon: ListChecks  },
+  { key: "friends",    labelAr: "الأصدقاء", labelEn: "Friends", icon: Users       },
+  { key: "leaderboard",labelAr: "المتصدرون",labelEn: "Leaders", icon: Trophy      },
+];
 
-type TonWalletConnectProps = { className?: string; manifestUrl: string };
-
-const TonWalletConnectLazy = lazy(async () => {
-  const module = await import("@tonconnect/ui-react");
-  const Component = ({ className, manifestUrl }: TonWalletConnectProps) => (
-    <module.TonConnectUIProvider manifestUrl={manifestUrl}>
-      <module.TonConnectButton className={className} />
-    </module.TonConnectUIProvider>
+/* ═══════════════════════════════════════════════════════════════════
+   LAZY COMPONENTS
+═══════════════════════════════════════════════════════════════════ */
+type TonWalletProps = { className?: string; manifestUrl: string };
+const TonWalletLazy = lazy(async () => {
+  const mod = await import("@tonconnect/ui-react");
+  const C = ({ className, manifestUrl }: TonWalletProps) => (
+    <mod.TonConnectUIProvider manifestUrl={manifestUrl}>
+      <mod.TonConnectButton className={className} />
+    </mod.TonConnectUIProvider>
   );
-  return { default: Component };
+  return { default: C };
 });
 
-// ─── Audio ────────────────────────────────────────────────────────────────────
-
+/* ═══════════════════════════════════════════════════════════════════
+   AUDIO — single AudioContext, pooled oscillators
+═══════════════════════════════════════════════════════════════════ */
 type AudioContextCtor = typeof AudioContext;
-let sharedAudioContext: AudioContext | null = null;
-
-function getAudioContextSafe(): AudioContext | null {
-  if (sharedAudioContext) return sharedAudioContext;
-  const AudioContextClass =
-    window.AudioContext ||
-    ((window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ?? null);
-  if (!AudioContextClass) return null;
-  sharedAudioContext = new AudioContextClass();
-  return sharedAudioContext;
+let _audioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext | null {
+  if (_audioCtx) return _audioCtx;
+  const Ctor = window.AudioContext
+    || ((window as unknown as { webkitAudioContext?: AudioContextCtor }).webkitAudioContext ?? null);
+  if (!Ctor) return null;
+  _audioCtx = new Ctor();
+  return _audioCtx;
 }
 
-function playTapSound() {
-  const context = getAudioContextSafe();
-  if (!context) return;
-  if (context.state === "suspended") void context.resume().catch(() => undefined);
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.type = "triangle";
-  oscillator.frequency.value = 420;
-  gain.gain.setValueAtTime(0.07, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.07);
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.07);
+const PITCH_STEPS = [420, 480, 520, 560, 600, 660];
+let pitchIdx = 0;
+
+function playTapSound(combo = 1) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+  const pitch = PITCH_STEPS[Math.min(PITCH_STEPS.length - 1, Math.floor(combo / 3))] ?? 520;
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "triangle";
+  osc.frequency.value = pitch;
+  gain.gain.setValueAtTime(0.055, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.07);
+  pitchIdx = (pitchIdx + 1) % PITCH_STEPS.length;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function rankMark(rank: number) {
-  if (rank === 1) return "🥇";
-  if (rank === 2) return "🥈";
-  if (rank === 3) return "🥉";
-  return String(rank);
+function playAchievementSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+  [523, 659, 784, 1047].forEach((freq, i) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = freq;
+    o.type = "sine";
+    g.gain.setValueAtTime(0, ctx.currentTime + i * 0.11);
+    g.gain.linearRampToValueAtTime(0.04, ctx.currentTime + i * 0.11 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.11 + 0.18);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(ctx.currentTime + i * 0.11);
+    o.stop(ctx.currentTime + i * 0.11 + 0.2);
+  });
 }
 
-function categoryGradient(category: string): string {
-  switch (category) {
-    case "tap":       return "from-orange-500/30 via-amber-500/15 to-transparent";
-    case "pph":       return "from-cyan-500/30 via-blue-500/15 to-transparent";
-    case "energy":    return "from-emerald-500/30 via-green-500/15 to-transparent";
-    case "autotap":   return "from-violet-500/30 via-fuchsia-500/15 to-transparent";
-    case "legendary": return "from-yellow-400/35 via-orange-500/20 to-transparent";
-    default:          return "from-slate-500/20 via-slate-500/10 to-transparent";
-  }
+/* ═══════════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════════ */
+function categoryAccentColor(cat: string): string {
+  const map: Record<string, string> = {
+    tap:     "#f59e0b", pph:      "#22d3ee",
+    energy:  "#34d399", autotap:  "#c084fc",
+    legendary:"#fbbf24",
+  };
+  return map[cat] ?? "#94a3b8";
 }
 
-function categoryAccent(category: string): string {
-  switch (category) {
-    case "tap":       return "border-orange-400/40";
-    case "pph":       return "border-cyan-400/40";
-    case "energy":    return "border-emerald-400/40";
-    case "autotap":   return "border-violet-400/40";
-    case "legendary": return "border-yellow-400/50";
-    default:          return "border-slate-500/30";
-  }
-}
-
-function numericFromString(input: string): number {
+function numericFromStr(s: string): number {
   try {
-    const value = BigInt(input);
-    const max   = BigInt(Number.MAX_SAFE_INTEGER);
-    if (value > max) return Number.MAX_SAFE_INTEGER;
-    return Number(value);
-  } catch {
-    return Number(input) || 0;
-  }
+    const v = BigInt(s);
+    return v > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(v);
+  } catch { return Number(s) || 0; }
 }
 
-function addToNumericString(value: string, increment: number) {
-  if (increment <= 0) return value;
-  try { return (BigInt(value) + BigInt(increment)).toString(); }
-  catch { return String((Number(value) || 0) + increment); }
+function addToNumericStr(s: string, n: number): string {
+  if (n <= 0) return s;
+  try { return (BigInt(s) + BigInt(n)).toString(); }
+  catch { return String((Number(s) || 0) + n); }
 }
 
-function formatFullNumber(value: number | string): string {
-  const num = typeof value === "string" ? Number(value) : value;
-  if (!Number.isFinite(num)) return "0";
-  return new Intl.NumberFormat("en-US").format(Math.floor(num));
+function fmtFull(v: number | string): string {
+  const n = typeof v === "string" ? Number(v) : v;
+  if (!Number.isFinite(n)) return "0";
+  return new Intl.NumberFormat("en-US").format(Math.floor(n));
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+function canAfford(cost: number, pts: string): boolean {
+  try { return BigInt(pts) >= BigInt(cost); }
+  catch { return Number(pts) >= cost; }
+}
 
+function normalizeReferralCode(value?: string | null): string | undefined {
+  const clean = value?.trim();
+  if (!clean) return undefined;
+  const lowered = clean.toLowerCase();
+  if (lowered.startsWith("buy_") || lowered.startsWith("stars_")) return undefined;
+  return clean.toUpperCase();
+}
+
+/* Framer variants — defined outside component to avoid recreation */
+const screenVariants = {
+  enter:  (dir: number) => ({ opacity: 0, x: dir > 0 ? 28 : -28 }),
+  center: { opacity: 1, x: 0 },
+  exit:   (dir: number) => ({ opacity: 0, x: dir > 0 ? -20 : 20 }),
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 14 },
+  show:   { opacity: 1, y: 0  },
+};
+
+const SCREEN_TRANSITION = { duration: 0.2, ease: [0.22, 1, 0.36, 1] as [number,number,number,number] };
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUB-COMPONENTS — memo-ised to prevent cascade re-renders
+═══════════════════════════════════════════════════════════════════ */
+const EnergyBar = memo(({ pct }: { pct: number }) => (
+  <div className="vt-energy-card">
+    <div className="vt-energy-head">
+      <span><Zap size={11} style={{ display:"inline", marginInlineEnd:4 }} />Energy</span>
+      <span style={{ color:"var(--g-400)", fontFamily:"var(--font-mono)", fontSize:11 }}>{pct}%</span>
+    </div>
+    <div className="vt-energy-track">
+      <motion.div
+        className="vt-energy-fill"
+        animate={{ width: `${pct}%` }}
+        transition={{ duration: 0.55, ease: "easeOut" }}
+      />
+    </div>
+    {pct < 20 && (
+      <motion.p
+        className="vt-energy-warn"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      >
+        ⚠️ Low energy — recharging…
+      </motion.p>
+    )}
+  </div>
+));
+EnergyBar.displayName = "EnergyBar";
+
+const AchievementToast = memo(({ items, onDone }: { items: Achievement[]; onDone: (id: string) => void }) => (
+  <AnimatePresence>
+    {items.map(a => (
+      <motion.div
+        key={a.id}
+        className="vt-achievement"
+        initial={{ opacity: 0, y: -60, scale: 0.8 }}
+        animate={{ opacity: 1, y: 0,   scale: 1   }}
+        exit={{   opacity: 0, y: -60, scale: 0.8  }}
+        transition={{ type:"spring", stiffness:420, damping:28 }}
+        onAnimationComplete={() => setTimeout(() => onDone(a.id), 2400)}
+      >
+        <span className="vt-ach-icon">{a.icon}</span>
+        <div>
+          <p className="vt-ach-title">Achievement!</p>
+          <p className="vt-ach-body">{a.title}</p>
+        </div>
+      </motion.div>
+    ))}
+  </AnimatePresence>
+));
+AchievementToast.displayName = "AchievementToast";
+
+const ComboFire = memo(({ combo }: { combo: number }) => {
+  if (combo < 3) return null;
+  const level = combo >= 20 ? 3 : combo >= 10 ? 2 : 1;
+  const flames = ["🔥","🔥🔥","🔥🔥🔥"][level - 1];
+  return (
+    <motion.div
+      className="vt-combo-fire"
+      initial={{ scale: 0.5, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 0.3, opacity: 0 }}
+      transition={{ type: "spring", stiffness: 500, damping: 22 }}
+    >
+      <span className="vt-combo-flames">{flames}</span>
+      <span className="vt-combo-x">×{combo}</span>
+      <span className="vt-combo-label">COMBO</span>
+    </motion.div>
+  );
+});
+ComboFire.displayName = "ComboFire";
+
+const PPHCounter = memo(({ pph }: { pph: number }) => {
+  const [display, setDisplay] = useState(pph);
+  useEffect(() => {
+    const start = Date.now();
+    const from  = display;
+    const diff  = pph - from;
+    if (Math.abs(diff) < 1) return;
+    let raf = 0;
+    const animate = () => {
+      const t = Math.min(1, (Date.now() - start) / 600);
+      setDisplay(Math.round(from + diff * t));
+      if (t < 1) raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pph]);
+  return <>{formatNumber(display)}</>;
+});
+PPHCounter.displayName = "PPHCounter";
+
+/* ═══════════════════════════════════════════════════════════════════
+   APP
+═══════════════════════════════════════════════════════════════════ */
 export default function App() {
   const { t, i18n } = useTranslation();
-  const tonManifestUrl = import.meta.env.VITE_TON_MANIFEST_URL ?? "https://bottele-mini-app.vercel.app/tonconnect-manifest.json";
-  const socketEnabled  = import.meta.env.VITE_DISABLE_SOCKET !== "true";
-  const botUsername    = (import.meta.env.VITE_BOT_USERNAME ?? import.meta.env.VITE_TELEGRAM_BOT_USERNAME ?? "").toString().replace("@", "").trim();
+  const tonManifestUrl = import.meta.env.VITE_TON_MANIFEST_URL
+    ?? "https://bottele-mini-app.vercel.app/tonconnect-manifest.json";
+  const socketEnabled = import.meta.env.VITE_DISABLE_SOCKET !== "true";
+  const botUsername   = (
+    import.meta.env.VITE_BOT_USERNAME
+    ?? import.meta.env.VITE_TELEGRAM_BOT_USERNAME
+    ?? ""
+  ).toString().replace("@", "").trim();
 
-  const [loading,          setLoading]          = useState(true);
-  const [outsideTelegram,  setOutsideTelegram]  = useState(false);
-  const [user,             setUser]             = useState<User | null>(null);
-  const [upgrades,         setUpgrades]         = useState<Upgrade[]>([]);
-  const [tasks,            setTasks]            = useState<Task[]>([]);
-  const [leaderboard,      setLeaderboard]      = useState<LeaderboardItem[]>([]);
-  const [activeTab,        setActiveTab]        = useState<ActiveTab>("home");
-  const [tabDirection,     setTabDirection]     = useState(1);
-  const [leaderboardType,  setLeaderboardType]  = useState<BoardType>("global");
-  const [upgradeFilter,    setUpgradeFilter]    = useState("all");
-  const [taskFilter,       setTaskFilter]       = useState<TaskFilter>("all");
-  const [referral,         setReferral]         = useState<{ directReferrals: number; referralCode: string } | null>(null);
-  const [referralStats,    setReferralStats]    = useState<ReferralStats | null>(null);
-  const [activeEvents,     setActiveEvents]     = useState<Array<{ id: string; nameAr: string; nameEn: string; multiplier: number }>>([]);
-  const [cipherInput,      setCipherInput]      = useState("");
-  const [walletAddress,    setWalletAddress]    = useState("");
-  const [tapAnimating,     setTapAnimating]     = useState(false);
-  const [floatingGains,    setFloatingGains]    = useState<FloatingGain[]>([]);
-  const [turboCooldownUntil, setTurboCooldownUntil] = useState(0);
-  const [nowTick,          setNowTick]          = useState(() => Date.now());
-  const [isSyncingTaps,    setIsSyncingTaps]    = useState(false);
-  const [settingsOpen,     setSettingsOpen]     = useState(false);
+  /* ── State ── */
+  const [loading,       setLoading]       = useState(true);
+  const [outsideTg,     setOutsideTg]     = useState(false);
+  const [user,          setUser]          = useState<User | null>(null);
+  const [upgrades,      setUpgrades]      = useState<Upgrade[]>([]);
+  const [tasks,         setTasks]         = useState<Task[]>([]);
+  const [leaderboard,   setLeaderboard]   = useState<LeaderboardItem[]>([]);
+  const [activeTab,     setActiveTab]     = useState<ActiveTab>("home");
+  const [tabDir,        setTabDir]        = useState(1);
+  const [boardType,     setBoardType]     = useState<BoardType>("global");
+  const [upgFilter,     setUpgFilter]     = useState("all");
+  const [taskFilter,    setTaskFilter]    = useState<TaskFilter>("all");
+  const [referral,      setReferral]      = useState<{ directReferrals: number; referralCode: string } | null>(null);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [activeEvents,  setActiveEvents]  = useState<Array<{ id: string; nameAr: string; nameEn: string; multiplier: number }>>([]);
+  const [cipherInput,   setCipherInput]   = useState("");
+  const [walletAddress, setWalletAddress] = useState("");
+  const [tapping,       setTapping]       = useState(false);
+  const [floatingGains, setFloatingGains] = useState<FloatingGain[]>([]);
+  const [turboUntil,    setTurboUntil]    = useState(0);
+  const [tick,          setTick]          = useState(() => Date.now());
+  const [syncing,       setSyncing]       = useState(false);
+  const [uiSettings,    setUiSettings]    = useState<UiSettings>({ tapIconMode: "emoji", tapIconValue: "VT" });
+  const [tapIconBroken, setTapIconBroken] = useState(false);
+  const [settingsOpen,  setSettingsOpen]  = useState(false);
+  const [codeCopied,    setCodeCopied]    = useState(false);
+  const [ripples,       setRipples]       = useState<Array<{ id: number; x: number; y: number }>>([]);
 
-  const userRef               = useRef<User | null>(null);
-  const pendingTapsRef        = useRef(0);
-  const flushingTapsRef       = useRef(false);
-  const tapFlushTimerRef      = useRef<number | null>(null);
-  const lastSoundAtRef        = useRef(0);
-  const lastEnergyWarningAtRef = useRef(0);
+  /* ── NEW STATE ── */
+  const [tapCombo,      setTapCombo]      = useState(0);
+  const [achievements,  setAchievements]  = useState<Achievement[]>([]);
+  const [tapStreak,     setTapStreak]     = useState(0);
+  const [showLevelUp,   setShowLevelUp]   = useState(false);
+  const [prevLevel,     setPrevLevel]     = useState(0);
+  const [coinTilt,      setCoinTilt]      = useState({ x: 0, y: 0 });
 
+  /* ── Refs ── */
+  const userRef        = useRef<User | null>(null);
+  const pendingTaps    = useRef(0);
+  const flushing       = useRef(false);
+  const flushTimer     = useRef<number | null>(null);
+  const lastSound      = useRef(0);
+  const lastEnergyWarn = useRef(0);
+  const coinRef        = useRef<HTMLButtonElement>(null);
+  const canvasRef      = useRef<HTMLCanvasElement>(null);
+  const comboTimer     = useRef<number | null>(null);
+  const tapStreakRef   = useRef(0);
+  const achievedRef   = useRef(new Set<string>());
+
+  /* ── Derived ── */
   const isRtl = RTL_LANGS.has(i18n.language);
-  const displayName =
-    user?.firstName?.trim() ||
-    user?.username?.trim() ||
-    `${t("leaderboard.player")} #${String(user?.telegramId ?? "").slice(-4) || "0000"}`;
+  const S = useCallback((ar: string, en: string) => isRtl ? ar : en, [isRtl]);
+
+  const displayName = useMemo(
+    () => user?.firstName?.trim() || user?.username?.trim()
+      || `Player #${String(user?.telegramId ?? "").slice(-4) || "0000"}`,
+    [user?.firstName, user?.username, user?.telegramId],
+  );
 
   const referralLink = useMemo(() => {
     const code = referral?.referralCode?.trim();
-    if (!code || !botUsername) return "";
-    return `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`;
+    return code && botUsername
+      ? `https://t.me/${botUsername}?start=${encodeURIComponent(code)}`
+      : "";
   }, [botUsername, referral?.referralCode]);
 
-  const energyPercent = useMemo(() => {
+  const energyPct = useMemo(() => {
     if (!user || user.maxEnergy === 0) return 0;
-    return Math.round((user.energy / user.maxEnergy) * 100);
-  }, [user]);
+    return Math.min(100, Math.round((user.energy / user.maxEnergy) * 100));
+  }, [user?.energy, user?.maxEnergy]);
 
-  const turboCooldownSeconds = useMemo(() => {
-    const diff = Math.max(0, turboCooldownUntil - nowTick);
-    return Math.ceil(diff / 1000);
-  }, [turboCooldownUntil, nowTick]);
-
-  const pointsNumber = useMemo(() => numericFromString(user?.points ?? "0"), [user?.points]);
-
-  const playerLevel = useMemo(() => {
-    if (!user) return 1;
-    return Math.min(105, Math.max(1, Math.floor(Math.pow(pointsNumber + 400, 0.17))));
-  }, [pointsNumber, user]);
-
-  const levelProgress = useMemo(() => {
-    if (!user || playerLevel >= 105) return 100;
-    const prevNeed = Math.floor(Math.pow(playerLevel + 2, 3) * 120);
-    const nextNeed = Math.floor(Math.pow(playerLevel + 3, 3) * 120);
-    const current  = pointsNumber;
-    if (current <= prevNeed) return 0;
-    return Math.min(100, Math.max(0, Math.round(((current - prevNeed) / Math.max(1, nextNeed - prevNeed)) * 100)));
-  }, [playerLevel, pointsNumber, user]);
-
-  const upgradeCategories = useMemo(
-    () => ["all", ...Array.from(new Set(upgrades.map((u) => u.category)))],
-    [upgrades]
+  const turboSecs = useMemo(
+    () => Math.ceil(Math.max(0, turboUntil - tick) / 1000),
+    [turboUntil, tick],
   );
 
+  const pts    = useMemo(() => numericFromStr(user?.points ?? "0"), [user?.points]);
+  const lvl    = useMemo(() => Math.min(105, Math.max(1, Math.floor(Math.pow(pts + 400, 0.17)))), [pts]);
+  const lvlPct = useMemo(() => {
+    if (!user || lvl >= 105) return 100;
+    const prev = Math.floor(Math.pow(lvl + 2, 3) * 120);
+    const next = Math.floor(Math.pow(lvl + 3, 3) * 120);
+    return Math.min(100, Math.max(0, Math.round(((pts - prev) / Math.max(1, next - prev)) * 100)));
+  }, [lvl, pts, user]);
+
+  const upgCategories = useMemo(
+    () => ["all", ...Array.from(new Set(upgrades.map(u => u.category)))],
+    [upgrades],
+  );
   const filteredUpgrades = useMemo(
     () => upgrades
-      .filter((u) => upgradeFilter === "all" || u.category === upgradeFilter)
-      .slice()
+      .filter(u => upgFilter === "all" || u.category === upgFilter)
       .sort((a, b) => a.unlockLevel - b.unlockLevel || a.baseCost - b.baseCost),
-    [upgrades, upgradeFilter]
+    [upgrades, upgFilter],
+  );
+  const filteredTasks = useMemo(
+    () => tasks.filter(t => taskFilter === "all" || t.type === taskFilter),
+    [tasks, taskFilter],
   );
 
-  const filteredTasks       = useMemo(() => tasks.filter((t) => taskFilter === "all" || t.type === taskFilter), [tasks, taskFilter]);
-  const topThreeLeaders     = useMemo(() => leaderboard.slice(0, 3), [leaderboard]);
-  const restLeaders         = useMemo(() => leaderboard.slice(3), [leaderboard]);
-  const navActiveIndex      = useMemo(() => Math.max(0, NAV_ITEMS.findIndex((i) => i.key === activeTab)), [activeTab]);
+  const navActiveIdx = useMemo(
+    () => Math.max(0, NAV_ITEMS.findIndex(i => i.key === activeTab)),
+    [activeTab],
+  );
 
-  const handleTabChange = (nextTab: ActiveTab) => {
-    if (nextTab === activeTab) return;
-    const nextIndex = NAV_ITEMS.findIndex((i) => i.key === nextTab);
-    setTabDirection(nextIndex > navActiveIndex ? 1 : -1);
-    setActiveTab(nextTab);
-  };
+  const eventMultiplier = useCallback(
+    () => activeEvents.reduce((h, e) => Math.max(h, e.multiplier), 1),
+    [activeEvents],
+  );
+
+  const tapIconValue = useMemo(
+    () => uiSettings.tapIconValue?.trim() || "VT",
+    [uiSettings.tapIconValue],
+  );
+  const showTapIconImage = useMemo(
+    () =>
+      uiSettings.tapIconMode === "image"
+      && /^(https?:\/\/|data:image\/)/i.test(tapIconValue)
+      && !tapIconBroken,
+    [uiSettings.tapIconMode, tapIconValue, tapIconBroken],
+  );
+
+  /* ── Achievement checker ── */
+  const checkAchievement = useCallback((id: string, title: string, icon: string) => {
+    if (achievedRef.current.has(id)) return;
+    achievedRef.current.add(id);
+    const ach: Achievement = { id, title, icon, ts: Date.now() };
+    setAchievements(p => [...p, ach]);
+    playAchievementSound();
+  }, []);
+
+  const dismissAchievement = useCallback((id: string) => {
+    setAchievements(p => p.filter(a => a.id !== id));
+  }, []);
+
+  /* ── Level up detection ── */
+  useEffect(() => {
+    if (prevLevel === 0) { setPrevLevel(lvl); return; }
+    if (lvl > prevLevel) {
+      setShowLevelUp(true);
+      checkAchievement(`lvl-${lvl}`, `Reached Level ${lvl}!`, "⭐");
+      setTimeout(() => setShowLevelUp(false), 2800);
+      try { WebApp.HapticFeedback.notificationOccurred("success"); } catch { /* ignore */ }
+    }
+    setPrevLevel(lvl);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lvl]);
+
+  /* ── Tab change ── */
+  const changeTab = useCallback((next: ActiveTab) => {
+    if (next === activeTab) return;
+    const nextIdx = NAV_ITEMS.findIndex(i => i.key === next);
+    setTabDir(isRtl ? (nextIdx < navActiveIdx ? 1 : -1) : (nextIdx > navActiveIdx ? 1 : -1));
+    setActiveTab(next);
+  }, [activeTab, isRtl, navActiveIdx]);
 
   useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { setTapIconBroken(false); }, [uiSettings.tapIconMode, uiSettings.tapIconValue]);
 
-  async function refreshFastData() {
+  /* ── Resize canvas to match container ── */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width  = canvas.offsetWidth;
+      canvas.height = canvas.offsetHeight;
+    });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
+  /* ── Data loaders ── */
+  const loadFast = useCallback(async () => {
     const gs = await api.gameMe();
-    setUser(gs.user); setUpgrades(gs.upgrades); setReferral(gs.referral); setActiveEvents(gs.activeEvents);
-  }
+    setUser(gs.user); setUpgrades(gs.upgrades);
+    setReferral(gs.referral); setActiveEvents(gs.activeEvents);
+    if (gs.uiSettings?.tapIconValue) setUiSettings(gs.uiSettings);
+  }, []);
 
-  async function refreshSecondaryData(board: BoardType) {
-    const [taskState, lb, referrals] = await Promise.all([api.getTasks(), api.leaderboard(board), api.referrals()]);
-    setTasks(taskState.tasks); setLeaderboard(lb); setReferralStats(referrals);
-  }
+  const loadSecondary = useCallback(async (board: BoardType) => {
+    const [ts, lb, ref] = await Promise.all([api.getTasks(), api.leaderboard(board), api.referrals()]);
+    setTasks(ts.tasks); setLeaderboard(lb); setReferralStats(ref);
+  }, []);
 
+  /* ── Init ── */
   useEffect(() => {
     let mounted = true;
-    const init = async () => {
+    (async () => {
       try {
         initTelegram();
-        const inTelegram   = isTelegramWebApp();
-        const params       = new URLSearchParams(window.location.search);
-        const allowExternal = params.get("dev") === "1";
-        if (!inTelegram && !allowExternal) { setOutsideTelegram(true); setLoading(false); return; }
-
-        const tgUser       = getTelegramUser();
-        const tgInitData   = getTelegramInitData();
-        const fallbackId   = localStorage.getItem("vaulttap-local-id") ?? String(Date.now()).slice(-10);
-        localStorage.setItem("vaulttap-local-id", fallbackId);
-        const referralCode = params.get("startapp") || params.get("ref") || undefined;
+        const inTg = isTelegramWebApp();
+        const params = new URLSearchParams(window.location.search);
+        if (!inTg && params.get("dev") !== "1") { setOutsideTg(true); setLoading(false); return; }
+        const tgUser   = getTelegramUser();
+        const initData = getTelegramInitData();
+        const fbId     = localStorage.getItem("vt-id") ?? String(Date.now()).slice(-10);
+        localStorage.setItem("vt-id", fbId);
+        const queryReferral        = normalizeReferralCode(params.get("startapp") || params.get("start") || params.get("ref"));
+        const telegramStartReferral = normalizeReferralCode(getTelegramStartParam());
+        const cachedReferral        = normalizeReferralCode(localStorage.getItem(PENDING_REFERRAL_KEY));
+        const referralCode          = queryReferral || telegramStartReferral || cachedReferral;
+        if (referralCode) localStorage.setItem(PENDING_REFERRAL_KEY, referralCode);
 
         const login = await api.login({
-          telegramId:   tgUser?.id ?? fallbackId,
-          username:     tgUser?.username,
-          firstName:    tgUser?.first_name,
-          lastName:     tgUser?.last_name,
-          language:     tgUser?.language_code ?? "ar",
-          referralCode,
-          initData:     tgInitData ?? undefined
+          telegramId: tgUser?.id ?? fbId,
+          username:   tgUser?.username, firstName: tgUser?.firstName,
+          lastName:   tgUser?.lastName, language:  tgUser?.languageCode ?? "ar",
+          referralCode, initData: initData ?? undefined,
         });
-
         api.setToken(login.token);
+        if (referralCode) localStorage.removeItem(PENDING_REFERRAL_KEY);
 
         if (socketEnabled) {
-          const socket = connectSocket(login.token);
-          socket.on("user:update", (payload: User) => { if (mounted) setUser(payload); });
-          socket.on("leaderboard:update", (payload: LeaderboardItem[]) => { if (mounted && leaderboardType === "global") setLeaderboard(payload); });
-          socket.on("mass:notification", (payload: { title: string; body: string }) => toast.info(payload.title, { description: payload.body }));
+          const sock = connectSocket(login.token);
+          sock.on("user:update",       (p: User)              => { if (mounted) setUser(p); });
+          sock.on("leaderboard:update",(p: LeaderboardItem[]) => { if (mounted && boardType === "global") setLeaderboard(p); });
+          sock.on("mass:notification", (p: { title: string; body: string }) => toast.info(p.title, { description: p.body }));
         }
-
-        await refreshFastData();
+        await loadFast();
         if (mounted) setLoading(false);
-        void refreshSecondaryData(leaderboardType).catch(() => undefined);
-
-        if (SUPPORTED_LANGS.includes(login.user.language as (typeof SUPPORTED_LANGS)[number]))
-          await i18n.changeLanguage(login.user.language);
-        else await i18n.changeLanguage("ar");
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : t("common.error"));
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    void init();
+        void loadSecondary(boardType).catch(() => undefined);
+        const lang = login.user.language as (typeof SUPPORTED_LANGS)[number];
+        await i18n.changeLanguage(SUPPORTED_LANGS.includes(lang) ? lang : "ar");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("common.error"));
+      } finally { if (mounted) setLoading(false); }
+    })();
     return () => {
       mounted = false;
       if (socketEnabled) disconnectSocket();
-      if (tapFlushTimerRef.current !== null) { window.clearTimeout(tapFlushTimerRef.current); tapFlushTimerRef.current = null; }
+      if (flushTimer.current !== null) { clearTimeout(flushTimer.current); flushTimer.current = null; }
+      if (comboTimer.current !== null) { clearTimeout(comboTimer.current); }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    void api.leaderboard(leaderboardType).then(setLeaderboard).catch(() => undefined);
-  }, [leaderboardType, user?.id]);
+    void api.leaderboard(boardType).then(setLeaderboard).catch(() => undefined);
+  }, [boardType, user?.id]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(interval);
+    const iv = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {
@@ -356,416 +609,659 @@ export default function App() {
     document.documentElement.dir  = isRtl ? "rtl" : "ltr";
   }, [i18n.language, isRtl]);
 
-  const activeEventMultiplier = () => activeEvents.reduce((h, e) => Math.max(h, e.multiplier), 1);
+  /* ─── Tap engine ─── */
+  const spawnGain = useCallback((value: number, burst = false) => {
+    const id = Date.now() + Math.floor(Math.random() * 999);
+    setFloatingGains(prev => {
+      const trimmed = prev.length > 6 ? prev.slice(-6) : prev;
+      return [...trimmed, {
+        id, value, burst,
+        left: 32 + Math.random() * 36,
+        top:  20 + Math.random() * 28,
+      }];
+    });
+    setTimeout(() => setFloatingGains(p => p.filter(g => g.id !== id)), burst ? 1200 : 950);
+  }, []);
 
-  const addFloatingGain = (value: number, burst = false) => {
-    const id   = Date.now() + Math.floor(Math.random() * 1000);
-    const gain = { id, value, left: 46 + Math.random() * 12, top: 41 + Math.random() * 14, burst };
-    setFloatingGains((prev) => [...prev.slice(-7), gain]);
-    window.setTimeout(() => setFloatingGains((prev) => prev.filter((i) => i.id !== id)), burst ? 1050 : 820);
-  };
+  const spawnRipple = useCallback((e: React.PointerEvent) => {
+    const rect = coinRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const id = Date.now();
+    setRipples(prev => [...prev.slice(-4), {
+      id,
+      x: ((e.clientX - rect.left) / rect.width)  * 100,
+      y: ((e.clientY - rect.top)  / rect.height) * 100,
+    }]);
+    setTimeout(() => setRipples(p => p.filter(r => r.id !== id)), 700);
+  }, []);
 
-  const scheduleTapFlush = (delay = TAP_FLUSH_DELAY_MS) => {
-    if (tapFlushTimerRef.current !== null) return;
-    tapFlushTimerRef.current = window.setTimeout(() => { tapFlushTimerRef.current = null; void flushTapQueue(); }, delay);
-  };
+  /* Particle burst via canvas */
+  const spawnParticles = useCallback((burst = false) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width  / 2;
+    const cy = rect.height / 2;
+    createParticleBurst(canvas, cx, cy, burst ? 28 : 10, burst);
+  }, []);
 
-  const flushTapQueue = async () => {
-    if (flushingTapsRef.current || pendingTapsRef.current <= 0) return;
-    flushingTapsRef.current = true;
-    setIsSyncingTaps(true);
-    const batch = Math.min(TAP_FLUSH_BATCH, pendingTapsRef.current);
-    pendingTapsRef.current -= batch;
+  const scheduleFlush = useCallback((delay = TAP_FLUSH_DELAY_MS) => {
+    if (flushTimer.current !== null) return;
+    flushTimer.current = window.setTimeout(() => {
+      flushTimer.current = null;
+      void doFlush();
+    }, delay);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const doFlush = useCallback(async () => {
+    if (flushing.current || pendingTaps.current <= 0) return;
+    flushing.current = true; setSyncing(true);
+    const batch = Math.min(TAP_FLUSH_BATCH, pendingTaps.current);
+    pendingTaps.current -= batch;
     try {
-      const response = await api.tap(batch);
-      userRef.current = response.user;
-      setUser(response.user);
-    } catch (error) {
-      pendingTapsRef.current = 0;
-      toast.error(error instanceof Error ? error.message : t("common.error"));
-      try { const s = await api.gameMe(); userRef.current = s.user; setUser(s.user); setUpgrades(s.upgrades); setReferral(s.referral); setActiveEvents(s.activeEvents); } catch {}
+      const r = await api.tap(batch);
+      userRef.current = r.user; setUser(r.user);
+    } catch (err) {
+      pendingTaps.current = 0;
+      toast.error(err instanceof Error ? err.message : t("common.error"));
+      try {
+        const gs = await api.gameMe();
+        userRef.current = gs.user; setUser(gs.user);
+        setUpgrades(gs.upgrades); setReferral(gs.referral); setActiveEvents(gs.activeEvents);
+        if (gs.uiSettings?.tapIconValue) setUiSettings(gs.uiSettings);
+      } catch { /* ignore */ }
     } finally {
-      flushingTapsRef.current = false;
-      if (pendingTapsRef.current > 0) scheduleTapFlush(10);
-      else setIsSyncingTaps(false);
+      flushing.current = false;
+      if (pendingTaps.current > 0) scheduleFlush(10); else setSyncing(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleFlush]);
 
-  const queueTaps = (requestedTaps: number): number => {
+  const resetComboTimer = useCallback(() => {
+    if (comboTimer.current !== null) clearTimeout(comboTimer.current);
+    comboTimer.current = window.setTimeout(() => {
+      setTapCombo(0);
+      tapStreakRef.current = 0;
+      setTapStreak(0);
+    }, COMBO_DECAY_MS);
+  }, []);
+
+  const enqueueTaps = useCallback((count: number): number => {
     const cu = userRef.current;
-    if (!cu || cu.energy <= 0 || requestedTaps <= 0) return 0;
-    const realTaps      = Math.min(requestedTaps, cu.energy);
-    const estimatedGain = Math.max(1, Math.floor(cu.tapPower * cu.comboMultiplier * activeEventMultiplier())) * realTaps;
-    const nextUser: User = { ...cu, energy: Math.max(0, cu.energy - realTaps), points: addToNumericString(cu.points, estimatedGain), totalTaps: addToNumericString(cu.totalTaps, realTaps) };
-    userRef.current = nextUser;
-    setUser(nextUser);
-    addFloatingGain(estimatedGain);
-    pendingTapsRef.current += realTaps;
-    if (pendingTapsRef.current >= TAP_FLUSH_IMMEDIATE_THRESHOLD) void flushTapQueue();
-    else scheduleTapFlush();
-    return realTaps;
-  };
+    if (!cu || cu.energy <= 0 || count <= 0) return 0;
+    const real = Math.min(count, cu.energy);
+    const gain = Math.max(1, Math.floor(cu.tapPower * cu.comboMultiplier * eventMultiplier())) * real;
+    const next: User = {
+      ...cu,
+      energy:    Math.max(0, cu.energy - real),
+      points:    addToNumericStr(cu.points, gain),
+      totalTaps: addToNumericStr(cu.totalTaps, real),
+    };
+    userRef.current = next; setUser(next);
+    spawnGain(gain);
+    pendingTaps.current += real;
+    if (pendingTaps.current >= TAP_FLUSH_IMMEDIATE_THRESHOLD) void doFlush();
+    else scheduleFlush();
+    return real;
+  }, [doFlush, eventMultiplier, scheduleFlush, spawnGain]);
 
-  const handleTap = () => {
-    const accepted = queueTaps(1);
-    if (accepted === 0) {
+  /* Coin 3D tilt on pointer move */
+  const handleCoinMouseMove = useCallback((e: React.MouseEvent) => {
+    const rect = coinRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = rect.left + rect.width  / 2;
+    const cy = rect.top  + rect.height / 2;
+    const dx = (e.clientX - cx) / (rect.width  / 2);
+    const dy = (e.clientY - cy) / (rect.height / 2);
+    setCoinTilt({ x: dy * -12, y: dx * 12 });
+  }, []);
+  const handleCoinMouseLeave = useCallback(() => {
+    setCoinTilt({ x: 0, y: 0 });
+  }, []);
+
+  const handleTap = useCallback((e: React.PointerEvent) => {
+    if (!enqueueTaps(1)) {
       const now = Date.now();
-      if (now - lastEnergyWarningAtRef.current >= ENERGY_WARNING_COOLDOWN_MS) { toast.warning(t("tap.energyLow")); lastEnergyWarningAtRef.current = now; }
+      if (now - lastEnergyWarn.current >= ENERGY_WARNING_COOLDOWN_MS) {
+        toast.warning(t("tap.energyLow")); lastEnergyWarn.current = now;
+      }
       return;
     }
-    setTapAnimating(true);
+    spawnRipple(e);
+    spawnParticles(false);
+    setTapping(true);
     const now = Date.now();
-    if (now - lastSoundAtRef.current > 42) { playTapSound(); lastSoundAtRef.current = now; }
-    try { WebApp.HapticFeedback.impactOccurred("light"); } catch {}
-    setTimeout(() => setTapAnimating(false), 120);
-  };
+    const newCombo = tapCombo + 1;
+    setTapCombo(newCombo);
+    tapStreakRef.current += 1;
+    setTapStreak(tapStreakRef.current);
+    resetComboTimer();
 
-  const handleTurboTap = () => {
+    /* Achievement checks */
+    if (newCombo === 10)  checkAchievement("combo-10",  "10x Combo!",   "🔥");
+    if (newCombo === 50)  checkAchievement("combo-50",  "50x Inferno!", "🌋");
+    if (newCombo === 100) checkAchievement("combo-100", "UNSTOPPABLE!", "💥");
+
+    if (now - lastSound.current > 35) {
+      playTapSound(newCombo);
+      lastSound.current = now;
+    }
+    try { WebApp.HapticFeedback.impactOccurred("light"); } catch { /* ignore */ }
+    setTimeout(() => setTapping(false), 140);
+  }, [checkAchievement, enqueueTaps, resetComboTimer, spawnParticles, spawnRipple, t, tapCombo]);
+
+  const handleTurbo = useCallback(() => {
     const now = Date.now();
-    if (now < turboCooldownUntil) { toast.warning(isRtl ? `انتظر ${turboCooldownSeconds} ثانية` : `Wait ${turboCooldownSeconds}s`); return; }
-    const accepted = queueTaps(TURBO_TAP_SIZE);
-    if (accepted === 0) {
-      if (now - lastEnergyWarningAtRef.current >= ENERGY_WARNING_COOLDOWN_MS) { toast.warning(t("tap.energyLow")); lastEnergyWarningAtRef.current = now; }
+    if (now < turboUntil) {
+      toast.warning(S(`انتظر ${turboSecs}ث`, `Wait ${turboSecs}s`)); return;
+    }
+    if (!enqueueTaps(TURBO_TAP_SIZE)) {
+      if (now - lastEnergyWarn.current >= ENERGY_WARNING_COOLDOWN_MS) {
+        toast.warning(t("tap.energyLow")); lastEnergyWarn.current = now;
+      }
       return;
     }
     const snap = userRef.current;
-    if (snap) addFloatingGain(Math.max(1, Math.floor(TURBO_TAP_SIZE * snap.tapPower * snap.comboMultiplier * activeEventMultiplier())), true);
-    setTurboCooldownUntil(now + TURBO_COOLDOWN_MS);
-    setTapAnimating(true);
-    playTapSound();
-    try { WebApp.HapticFeedback.impactOccurred("medium"); } catch {}
-    setTimeout(() => setTapAnimating(false), 180);
-  };
+    if (snap) spawnGain(
+      Math.max(1, Math.floor(TURBO_TAP_SIZE * snap.tapPower * snap.comboMultiplier * eventMultiplier())),
+      true,
+    );
+    spawnParticles(true);
+    setTurboUntil(now + TURBO_COOLDOWN_MS);
+    setTapping(true); playTapSound(tapCombo);
+    try { WebApp.HapticFeedback.impactOccurred("heavy"); } catch { /* ignore */ }
+    setTimeout(() => setTapping(false), 215);
+  }, [S, enqueueTaps, eventMultiplier, spawnGain, spawnParticles, t, tapCombo, turboSecs, turboUntil]);
 
-  const handleBuyUpgrade = async (upgradeId: string) => {
+  /* ─── Upgrade actions ─── */
+  const buyUpgrade = useCallback(async (id: string) => {
     try {
-      await flushTapQueue();
-      const result = await api.buyUpgrade(upgradeId);
-      setUser(result.user); userRef.current = result.user;
+      await doFlush();
+      const r = await api.buyUpgrade(id);
+      setUser(r.user); userRef.current = r.user;
       const gs = await api.gameMe(); setUpgrades(gs.upgrades);
-      toast.success(result.message);
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.error")); }
-  };
+      toast.success(r.message);
+      checkAchievement("first-upgrade", "First Upgrade!", "⚡");
+    } catch (err) { toast.error(err instanceof Error ? err.message : t("common.error")); }
+  }, [checkAchievement, doFlush, t]);
 
-  const handleStarsUpgrade = async (upgrade: Upgrade) => {
-    if (!upgrade.starsPrice || upgrade.starsPrice <= 0) { toast.warning(isRtl ? "هذه الترقية لا تدعم النجوم" : "This upgrade is not available for Stars."); return; }
+  const buyWithStars = useCallback(async (upg: Upgrade) => {
+    if (!upg.starsPrice || upg.starsPrice <= 0) {
+      toast.warning(S("لا تدعم النجوم", "Not available for Stars.")); return;
+    }
     try {
-      await flushTapQueue();
-      const invoice = await api.createStarsInvoice(upgrade.key);
-      const status  = await openTelegramInvoice(invoice.invoiceLink);
-      if (status === "paid") { toast.success(isRtl ? "تم الدفع بالنجوم بنجاح." : "Stars payment completed."); await refreshFastData(); return; }
-      if (status === "cancelled") { toast.info(isRtl ? "تم إلغاء الدفع." : "Payment cancelled."); return; }
-      if (status === "failed")    { toast.error(isRtl ? "فشل الدفع." : "Payment failed. Try again."); return; }
-      if (status === "unsupported") { window.open(invoice.invoiceLink, "_blank", "noopener,noreferrer"); toast.info(isRtl ? "أكمل الدفع داخل تيليجرام." : "Complete payment in Telegram."); }
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.error")); }
-  };
+      await doFlush();
+      const inv    = await api.createStarsInvoice(upg.key);
+      const status = await openTelegramInvoice(inv.invoiceLink);
+      if      (status === "paid")      { toast.success(S("تم الدفع ✓", "Payment complete ✓")); await loadFast(); }
+      else if (status === "cancelled") toast.info(S("تم الإلغاء", "Cancelled"));
+      else if (status === "failed")    toast.error(S("فشل الدفع", "Payment failed"));
+      else window.open(inv.invoiceLink, "_blank", "noopener,noreferrer");
+    } catch (err) { toast.error(err instanceof Error ? err.message : t("common.error")); }
+  }, [S, doFlush, loadFast, t]);
 
-  const handleClaimTask = async (task: Task) => {
+  const claimTask = useCallback(async (task: Task) => {
     try {
-      await flushTapQueue();
-      const result = await api.claimTask(task.id, task.type === "CIPHER" ? cipherInput : undefined);
-      toast.success(`${result.message} +${result.reward}`);
-      const [taskState, gs] = await Promise.all([api.getTasks(), api.gameMe()]);
-      setTasks(taskState.tasks); setUser(gs.user); userRef.current = gs.user; setCipherInput("");
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.error")); }
-  };
+      await doFlush();
+      const r = await api.claimTask(task.id, task.type === "CIPHER" ? cipherInput : undefined);
+      toast.success(`${r.message} +${r.reward}`);
+      const [ts, gs] = await Promise.all([api.getTasks(), api.gameMe()]);
+      setTasks(ts.tasks); setUser(gs.user); userRef.current = gs.user; setCipherInput("");
+      checkAchievement("task-done", "Task Complete!", "✅");
+    } catch (err) { toast.error(err instanceof Error ? err.message : t("common.error")); }
+  }, [checkAchievement, cipherInput, doFlush, t]);
 
-  const handleClaimAirdrop = async () => {
+  const claimAirdrop = useCallback(async () => {
     if (!walletAddress.trim()) { toast.warning(t("wallet.placeholder")); return; }
     try {
-      await flushTapQueue();
-      const result = await api.claimAirdrop(walletAddress.trim());
-      toast.success(`${t("wallet.claim")} ${formatNumber(result.estimatedJetton)}`);
-      setWalletAddress(result.walletAddress);
-    } catch (error) { toast.error(error instanceof Error ? error.message : t("common.error")); }
-  };
+      await doFlush();
+      const r = await api.claimAirdrop(walletAddress.trim());
+      toast.success(`${t("wallet.claim")} ${formatNumber(r.estimatedJetton)}`);
+      setWalletAddress(r.walletAddress);
+    } catch (err) { toast.error(err instanceof Error ? err.message : t("common.error")); }
+  }, [doFlush, t, walletAddress]);
 
-  const copyReferralCode = () => navigator.clipboard.writeText(referral?.referralCode ?? "").then(() => toast.success(isRtl ? "تم النسخ" : "Copied")).catch(() => toast.error(isRtl ? "تعذر النسخ" : "Failed to copy"));
+  const copyCode = useCallback(() => {
+    navigator.clipboard.writeText(referral?.referralCode ?? "")
+      .then(() => { setCodeCopied(true); toast.success(S("تم النسخ", "Copied")); setTimeout(() => setCodeCopied(false), 2200); })
+      .catch(() => toast.error("Failed"));
+  }, [S, referral?.referralCode]);
 
-  const copyReferralLink = () => {
-    if (!referralLink) { toast.warning(isRtl ? "أضف VITE_BOT_USERNAME" : "Set VITE_BOT_USERNAME to enable invite links."); return; }
-    navigator.clipboard.writeText(referralLink).then(() => toast.success(isRtl ? "تم نسخ رابط الدعوة" : "Invite link copied")).catch(() => toast.error(isRtl ? "تعذر نسخ الرابط" : "Failed to copy invite link"));
-  };
+  const copyLink = useCallback(() => {
+    if (!referralLink) { toast.warning(S("أضف VITE_BOT_USERNAME", "Set VITE_BOT_USERNAME")); return; }
+    navigator.clipboard.writeText(referralLink)
+      .then(() => toast.success(S("تم نسخ الرابط", "Link copied")))
+      .catch(() => toast.error("Failed"));
+  }, [S, referralLink]);
 
-  const shareReferralLink = () => {
-    if (!referralLink) { toast.warning(isRtl ? "أضف VITE_BOT_USERNAME" : "Set VITE_BOT_USERNAME to enable invite links."); return; }
-    const text     = isRtl ? "انضم إلى VaultTap من هذا الرابط وخذ مكافأة 1000 نقطة:" : "Join VaultTap using this link and get 1000 points:";
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(text)}`;
-    try { if (isTelegramWebApp()) WebApp.openTelegramLink(shareUrl); else window.open(shareUrl, "_blank", "noopener,noreferrer"); }
-    catch { window.open(shareUrl, "_blank", "noopener,noreferrer"); }
-  };
+  const shareLink = useCallback(() => {
+    if (!referralLink) { toast.warning(S("أضف VITE_BOT_USERNAME", "Set VITE_BOT_USERNAME")); return; }
+    const text = S("انضم إلى TOMI:", "Join TOMI:");
+    const url  = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(text)}`;
+    try { if (isTelegramWebApp()) WebApp.openTelegramLink(url); else window.open(url, "_blank"); }
+    catch { window.open(url, "_blank"); }
+  }, [S, referralLink]);
 
-  const canAfford = (cost: number, points: string): boolean => {
-    try { return BigInt(points) >= BigInt(cost); }
-    catch { return Number(points) >= cost; }
-  };
-
-  // ─── Loading / Guards ────────────────────────────────────────────────────────
-
-  if (loading) {
-    return (
-      <div className="vt-shell vt-loading-shell">
-        <div className="vt-loader-orb">
-          <motion.div
-            className="vt-loader-ring"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }}
-          />
-          <span className="vt-loader-logo">VT</span>
-        </div>
-        <p className="vt-loader-text">{t("common.loading")}</p>
+  /* ═══════════════════════════════════════════════════════════════════
+     LOADING
+  ═══════════════════════════════════════════════════════════════════ */
+  if (loading) return (
+    <div className="vt-shell">
+      <div className="vt-bg" aria-hidden>
+        <div className="vt-bg-blob vt-bg-blob--gold" />
+        <div className="vt-bg-blob vt-bg-blob--teal" />
+        <div className="vt-bg-blob vt-bg-blob--violet" />
+        <div className="vt-bg-grid" />
       </div>
-    );
-  }
+      <div className="vt-center-screen">
+        <div className="vt-splash">
+          <div className="vt-splash-orb">
+            <div className="vt-splash-ring vt-splash-ring--1" />
+            <div className="vt-splash-ring vt-splash-ring--2" />
+            <div className="vt-splash-ring vt-splash-ring--3" />
+            <div className="vt-splash-center">
+              <span className="vt-splash-logo-text">VT</span>
+            </div>
+          </div>
+          <div className="vt-splash-dots"><span /><span /><span /></div>
+          <p className="vt-splash-tagline">{S("اضغط · اكسب · ارتقِ", "Tap · Earn · Rise")}</p>
+        </div>
+      </div>
+    </div>
+  );
 
-  if (outsideTelegram) {
-    return (
-      <div className="vt-shell vt-guard-shell">
-        <motion.div className="vt-guard-card" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="vt-guard-icon"><ShieldCheck size={28} /></div>
-          <h2 className="vt-guard-title">VaultTap</h2>
-          <p className="vt-guard-body">{isRtl ? "هذه الواجهة تعمل من داخل Telegram فقط لحماية حسابات اللاعبين." : "This interface works only inside Telegram to protect player accounts."}</p>
-          <p className="vt-guard-hint">{isRtl ? "افتح البوت ثم اضغط على زر فتح VaultTap Mini App." : "Open the bot and tap the Open VaultTap Mini App button."}</p>
+  /* ═══════════════════════════════════════════════════════════════════
+     OUTSIDE TELEGRAM
+  ═══════════════════════════════════════════════════════════════════ */
+  if (outsideTg) return (
+    <div className="vt-shell">
+      <div className="vt-bg" aria-hidden>
+        <div className="vt-bg-blob vt-bg-blob--gold" />
+        <div className="vt-bg-grid" />
+      </div>
+      <div className="vt-center-screen">
+        <motion.div
+          className="vt-guard-card"
+          initial={{ opacity: 0, scale: 0.86, y: 22 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 255, damping: 22 }}
+        >
+          <div className="vt-guard-icon"><ShieldCheck size={30} /></div>
+          <h2 className="vt-guard-title">TOMI</h2>
+          <p className="vt-guard-body">{S("يعمل داخل تليجرام فقط لحماية حسابك.", "Only works inside Telegram to protect your account.")}</p>
+          <p className="vt-guard-hint">{S("افتح البوت واضغط زر التشغيل.", "Open the bot and tap the launch button.")}</p>
         </motion.div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (!user) {
-    return (
-      <div className="vt-shell vt-guard-shell">
-        <div className="vt-guard-card"><p className="text-center text-slate-300">{t("common.error")}</p></div>
+  if (!user) return (
+    <div className="vt-shell">
+      <div className="vt-center-screen">
+        <div className="vt-guard-card">
+          <p style={{ textAlign:"center", color:"var(--t-3)" }}>{t("common.error")}</p>
+        </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ─── Screens ─────────────────────────────────────────────────────────────────
-
+  /* ═══════════════════════════════════════════════════════════════════
+     HOME SCREEN
+  ═══════════════════════════════════════════════════════════════════ */
   const homeScreen = (
-    <section className="vt-home-screen">
+    <div className="vt-home">
+
+      {/* Level-up burst overlay */}
+      <AnimatePresence>
+        {showLevelUp && (
+          <motion.div
+            className="vt-levelup-overlay"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.4 }}
+            transition={{ duration: 0.45 }}
+          >
+            <span className="vt-levelup-text">LEVEL UP!</span>
+            <span className="vt-levelup-num">⭐ {lvl}</span>
+            <div className="vt-levelup-rays" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
-      <header className="vt-home-header">
+      <div className="vt-home-header">
         <div className="vt-brand">
-          <span className="vt-brand-badge">VT</span>
-          <div>
-            <p className="vt-brand-name">VaultTap</p>
-            <p className="vt-brand-tagline">{isRtl ? "نسخة جديدة كلياً" : "Full new experience"}</p>
+          <div className="vt-brand-mark"><Zap size={17} strokeWidth={2.5} /></div>
+          <div className="vt-brand-text">
+            <p className="vt-brand-name">TOMI</p>
+            <p className="vt-brand-sub">{S("اضغط واكسب", "Tap & Earn")}</p>
           </div>
         </div>
-        <div className="vt-header-actions">
-          <motion.button whileTap={{ scale: 0.9 }} type="button" className="vt-icon-btn" onClick={() => setSettingsOpen(true)}>
-            <Settings size={17} />
+        <div className="vt-hdr-actions">
+          {tapStreak >= STREAK_BONUS_THRESHOLD && (
+            <motion.div
+              className="vt-streak-badge"
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ repeat: Infinity, duration: 1.2 }}
+            >
+              <Flame size={12} /> {tapStreak}
+            </motion.div>
+          )}
+          <motion.button whileTap={{ scale: 0.86 }} className="vt-hbtn" onClick={() => setSettingsOpen(true)}>
+            <Settings size={16} strokeWidth={1.8} />
           </motion.button>
-          <motion.button whileTap={{ scale: 0.9 }} type="button" className="vt-icon-btn vt-icon-btn--trophy" onClick={() => handleTabChange("leaderboard")}>
-            <Trophy size={17} />
+          <motion.button whileTap={{ scale: 0.86 }} className="vt-hbtn vt-hbtn--accent" onClick={() => changeTab("leaderboard")}>
+            <Trophy size={16} strokeWidth={1.8} />
           </motion.button>
         </div>
-      </header>
+      </div>
 
-      {/* Player Card */}
-      <div className="vt-player-card">
-        <div className="vt-player-avatar">{(displayName[0] ?? "?").toUpperCase()}</div>
+      {/* Player */}
+      <motion.div
+        className="vt-card vt-player"
+        variants={cardVariants} initial="hidden" animate="show"
+        transition={{ delay: 0.04 }}
+      >
+        <div className="vt-player-avatar">
+          {(displayName[0] ?? "V").toUpperCase()}
+          <span className="vt-avatar-ring" />
+        </div>
         <div className="vt-player-info">
           <p className="vt-player-name">{displayName}</p>
-          <p className="vt-player-level">
-            <Crown size={11} className="inline me-1 text-amber-400" />
-            {isRtl ? "المستوى" : "Level"} {playerLevel}<span className="text-slate-500">/105</span>
-          </p>
+          <div className="vt-level-wrap">
+            <div className="vt-level-bar">
+              <motion.div
+                className="vt-level-fill"
+                initial={{ width: 0 }}
+                animate={{ width: `${lvlPct}%` }}
+                transition={{ duration: 1, ease: [0.22,1,0.36,1], delay: 0.4 }}
+              />
+            </div>
+            <p className="vt-level-text">
+              <Crown size={9} style={{ color:"var(--g-400)" }} />
+              &nbsp;{S("مستوى","Lvl")} {lvl} · {lvlPct}%
+            </p>
+          </div>
         </div>
-        <div className="vt-online-dot" />
-      </div>
+        <div className="vt-status-badge">
+          <div className="vt-status-dot" />
+          {S("متصل", "Online")}
+        </div>
+      </motion.div>
 
-      {/* Active Events */}
-      {activeEvents.length > 0 && (
-        <motion.div className="vt-event-banner" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
-          <Sparkles size={13} className="shrink-0 text-amber-300" />
-          <span>
-            {isRtl ? "حدث نشط" : "Live Event"}:{" "}
-            {activeEvents.slice(0, 2).map((e) => `${isRtl ? e.nameAr : e.nameEn} ×${e.multiplier}`).join(" • ")}
-          </span>
-        </motion.div>
-      )}
+      {/* Active events */}
+      <AnimatePresence>
+        {activeEvents.length > 0 && (
+          <motion.div
+            className="vt-event-banner"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <Sparkles size={13} style={{ flexShrink:0 }} />
+            <span className="vt-event-text">
+              {activeEvents.slice(0, 2).map(e => `${S(e.nameAr, e.nameEn)} ×${e.multiplier}`).join(" • ")}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Balance */}
-      <div className="vt-balance-card">
-        <p className="vt-balance-amount">{formatFullNumber(user.points)}</p>
-        <p className="vt-balance-label">{isRtl ? "إجمالي النقاط" : "Total Points"}</p>
-        <div className="vt-progress-wrap">
-          <div className="vt-progress-labels">
-            <span>{isRtl ? "تقدم المستوى" : "Level Progress"}</span>
-            <span className="vt-progress-pct">{levelProgress}%</span>
+      <motion.div
+        className="vt-balance-card"
+        variants={cardVariants} initial="hidden" animate="show"
+        transition={{ delay: 0.09 }}
+      >
+        <p className="vt-balance-label">{S("إجمالي النقاط", "Total Points")}</p>
+        <p className="vt-balance-amount">{fmtFull(user.points)}</p>
+        <p className="vt-balance-currency">VT Coins</p>
+        <div className="vt-xp-wrap">
+          <div className="vt-xp-head">
+            <span>⭐ {S("المستوى", "Level")} {lvl}</span>
+            <span>{lvlPct}% / 100%</span>
           </div>
-          <div className="vt-progress-track">
+          <div className="vt-xp-track">
             <motion.div
-              className="vt-progress-fill"
+              className="vt-xp-fill"
               initial={{ width: 0 }}
-              animate={{ width: `${levelProgress}%` }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
+              animate={{ width: `${lvlPct}%` }}
+              transition={{ duration: 1.2, ease: [0.22,1,0.36,1], delay: 0.5 }}
             />
           </div>
         </div>
-      </div>
+      </motion.div>
 
-      {/* Stats Row */}
-      <div className="vt-stats-grid">
-        <StatBox label={t("stats.energy")}  value={`${user.energy}/${user.maxEnergy}`} icon={<Zap size={13} />}   color="amber" />
-        <StatBox label={t("stats.combo")}   value={`${user.comboMultiplier.toFixed(2)}×`} icon={<Crown size={13} />} color="violet" />
-        <StatBox label="PPH"                value={formatNumber(user.pph)}           icon={<Coins size={13} />} color="cyan" />
-      </div>
-
-      {/* Energy Bar */}
-      <div className="vt-energy-bar">
-        <div className="vt-energy-labels">
-          <span className="flex items-center gap-1"><Zap size={11} className="text-amber-400" />{isRtl ? "الطاقة" : "Energy"}</span>
-          <span className="vt-energy-pct">{energyPercent}%</span>
-        </div>
-        <div className="vt-progress-track">
+      {/* Stats */}
+      <div className="vt-stats-row">
+        {[
+          { icon: "⚡", label: S("الطاقة","Energy"),  val: `${user.energy}/${user.maxEnergy}`, accent: "var(--g-400)"  },
+          { icon: "🔥", label: S("الكومبو","Combo"),  val: `${user.comboMultiplier.toFixed(2)}×`, accent: "var(--v-400)" },
+          { icon: "💰", label: "PPH",                 val: <PPHCounter pph={user.pph} />,        accent: "var(--c-400)"  },
+        ].map((s, i) => (
           <motion.div
-            className="vt-progress-fill vt-progress-fill--energy"
-            initial={{ width: 0 }}
-            animate={{ width: `${energyPercent}%` }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-          />
-        </div>
-      </div>
-
-      {/* Tap Zone */}
-      <div className="vt-tap-zone">
-        {floatingGains.map((gain) => (
-          <motion.div
-            key={gain.id}
-            initial={{ opacity: 0, y: 10, scale: 0.7 }}
-            animate={{ opacity: 1, y: gain.burst ? -46 : -30, scale: gain.burst ? 1.15 : 1 }}
-            exit={{ opacity: 0, y: gain.burst ? -62 : -42 }}
-            className={cn("vt-floating-gain", gain.burst && "is-burst")}
-            style={{ left: `${gain.left}%`, top: `${gain.top}%` }}
+            key={String(s.label)}
+            className="vt-stat-card"
+            style={{ "--accent-line": s.accent } as React.CSSProperties}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14 + i * 0.06 }}
           >
-            +{formatNumber(gain.value)}
+            <span className="vt-stat-icon">{s.icon}</span>
+            <p className="vt-stat-value">{s.val}</p>
+            <p className="vt-stat-label">{s.label}</p>
           </motion.div>
         ))}
+      </div>
 
+      {/* Combo fire — only renders when combo ≥ 3 */}
+      <AnimatePresence>
+        {tapCombo >= 3 && <ComboFire key="combo" combo={tapCombo} />}
+      </AnimatePresence>
+
+      {/* Energy bar — memoised */}
+      <EnergyBar pct={energyPct} />
+
+      {/* ─── TAP ZONE ─── */}
+      <div className="vt-tap-zone">
+        {/* Canvas particle layer — sits behind coin, pointer-events:none */}
+        <canvas
+          ref={canvasRef}
+          className="vt-particle-canvas"
+          aria-hidden
+        />
+
+        {/* Floating gains */}
+        <AnimatePresence>
+          {floatingGains.map(g => (
+            <motion.div
+              key={g.id}
+              className={cn("vt-gain", g.burst && "vt-gain--burst")}
+              style={{ left: `${g.left}%`, top: `${g.top}%` }}
+              initial={{ opacity: 1, y: 0, scale: 0.6 }}
+              animate={{ opacity: 0, y: g.burst ? -80 : -55, scale: g.burst ? 1.35 : 1.1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: g.burst ? 1.1 : 0.9, ease: "easeOut" }}
+            >
+              {g.burst ? "🔥 " : "+"}{fmtFull(g.value)}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+
+        {/* The coin — 3D tilt + tapping scale */}
         <motion.button
-          whileTap={{ scale: 0.93 }}
-          type="button"
+          ref={coinRef}
+          className={cn("vt-coin", tapping && "vt-coin--tapping")}
           onPointerDown={handleTap}
-          className={cn("vt-coin-btn", tapAnimating && "is-tapping")}
+          onMouseMove={handleCoinMouseMove}
+          onMouseLeave={handleCoinMouseLeave}
+          whileTap={{ scale: 0.92 }}
+          animate={{
+            rotateX: coinTilt.x,
+            rotateY: coinTilt.y,
+          }}
+          transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          aria-label={S("اضغط لتكسب", "Tap to earn")}
+          style={{ perspective: 800 }}
         >
-          <div className="vt-coin-glow" />
-          <div className="vt-coin-face">
+          <span className="vt-coin-orbit-a" />
+          <span className="vt-coin-orbit-b" />
+          <span className="vt-coin-orbit-c" />
+          <span className="vt-coin-orbit-d" />
+          <span className="vt-coin-glow" />
+          <span className="vt-coin-glow2" />
+
+          <span className={cn("vt-coin-face", showTapIconImage && "vt-coin-face--image")}>
+            {ripples.map(r => (
+              <span
+                key={r.id}
+                className="vt-tap-ripple"
+                style={{ left: `${r.x}%`, top: `${r.y}%` }}
+              />
+            ))}
+            <span className="vt-coin-hex" />
+            <span className="vt-coin-inner-ring" />
+            <span className="vt-coin-inner-ring2" />
             <span className="vt-coin-eyes">
               <span className="vt-coin-eye" />
               <span className="vt-coin-eye" />
             </span>
-            <span className="vt-coin-label">VT</span>
-          </div>
-          <div className="vt-coin-ring vt-coin-ring--1" />
-          <div className="vt-coin-ring vt-coin-ring--2" />
+            {showTapIconImage ? (
+              <img
+                src={tapIconValue}
+                alt="tap-icon"
+                className="vt-coin-custom-icon"
+                onError={() => setTapIconBroken(true)}
+              />
+            ) : (
+              <span className="vt-coin-monogram">{tapIconValue.slice(0, 4)}</span>
+            )}
+            <span className="vt-coin-hint">{S("اضغط!", "TAP!")}</span>
+          </span>
         </motion.button>
 
-        <p className="vt-tap-hint">{isRtl ? "اضغط بسرعة لرفع الكومبو" : "Tap quickly to raise combo"}</p>
-
+        {/* Controls */}
         <div className="vt-tap-controls">
-          <div className={cn("vt-sync-badge", isSyncingTaps && "is-live")}>
-            <span className={cn("vt-pulse-dot", isSyncingTaps && "is-on")} />
-            {isRtl ? "مباشر" : "Live"}
+          <div className={cn("vt-live-pill", syncing && "vt-live-pill--syncing")}>
+            <span className="vt-live-dot" />
+            {syncing ? S("مزامنة", "Syncing") : S("مباشر", "Live")}
           </div>
+
+          {/* Turbo button with charge arc */}
           <motion.button
-            whileTap={{ scale: 0.95 }}
-            type="button"
-            className={cn("vt-turbo-btn", turboCooldownSeconds > 0 || user.energy <= 0 ? "is-disabled" : "")}
-            disabled={turboCooldownSeconds > 0 || user.energy <= 0}
-            onClick={handleTurboTap}
+            className={cn("vt-turbo-btn", turboSecs > 0 && "vt-turbo-btn--charging")}
+            disabled={turboSecs > 0 || user.energy <= 0}
+            onClick={handleTurbo}
+            whileTap={{ scale: 0.88 }}
           >
-            <Zap size={14} />
-            {turboCooldownSeconds > 0
-              ? `${isRtl ? "توربو" : "Turbo"} (${turboCooldownSeconds}s)`
-              : `${isRtl ? "توربو" : "Turbo"} ×${TURBO_TAP_SIZE}`}
+            <Zap size={14} strokeWidth={2.5} />
+            {turboSecs > 0
+              ? <span className="vt-turbo-charge" style={{ "--pct": `${Math.round(100 - (turboSecs / (TURBO_COOLDOWN_MS / 1000)) * 100)}%` } as React.CSSProperties} />
+              : null}
+            {turboSecs > 0 ? `${turboSecs}${S("ث","s")}` : `×${TURBO_TAP_SIZE}`}
           </motion.button>
         </div>
       </div>
-    </section>
+    </div>
   );
 
+  /* ═══════════════════════════════════════════════════════════════════
+     UPGRADES
+  ═══════════════════════════════════════════════════════════════════ */
   const upgradesScreen = (
     <div className="vt-panel">
       <div className="vt-panel-header">
-        <TrendingUp size={17} className="text-amber-400" />
-        <h2 className="vt-panel-title">{isRtl ? "مركز الترقيات" : "Upgrade Center"}</h2>
+        <div className="vt-panel-icon"><TrendingUp size={16} /></div>
+        <h2 className="vt-panel-title">{S("مركز الترقيات","Upgrade Center")}</h2>
+        <span className="vt-panel-sub">{filteredUpgrades.length} {S("متاح","available")}</span>
       </div>
 
-      <div className="vt-filter-bar">
-        {upgradeCategories.map((cat) => (
-          <button key={cat} type="button" className={cn("vt-chip", upgradeFilter === cat && "is-active")} onClick={() => setUpgradeFilter(cat)}>
-            {cat === "all" ? (isRtl ? "الكل" : "All") : cat.toUpperCase()}
+      <div className="vt-chips-row">
+        {upgCategories.map(cat => (
+          <button
+            key={cat}
+            className={cn("vt-chip", upgFilter === cat && "vt-chip--active")}
+            onClick={() => setUpgFilter(cat)}
+          >
+            {cat === "all" ? S("الكل","All") : cat.toUpperCase()}
           </button>
         ))}
       </div>
 
-      <div className="vt-card-list">
+      <div className="vt-upgrades-list">
         {filteredUpgrades.length === 0 && (
-          <div className="vt-empty">{isRtl ? "لا توجد ترقيات في هذا القسم حالياً." : "No upgrades in this filter yet."}</div>
+          <div className="vt-empty">
+            <span className="vt-empty-icon">⚡</span>
+            {S("لا توجد ترقيات.","No upgrades yet.")}
+          </div>
         )}
-        {filteredUpgrades.map((upgrade) => {
-          const maxed        = upgrade.nextCost === null;
-          const cost         = upgrade.nextCost ?? 0;
-          const canBuyNow    = !maxed && canAfford(cost, user.points);
-          const lockedByLevel = playerLevel < upgrade.unlockLevel;
-          const levelPercent = Math.min(100, Math.round((upgrade.currentLevel / upgrade.maxLevel) * 100));
+        {filteredUpgrades.map((upg, i) => {
+          const maxed  = upg.nextCost === null;
+          const cost   = upg.nextCost ?? 0;
+          const canBuy = !maxed && canAfford(cost, user.points);
+          const locked = upg.unlockLevel > lvl;
+          const pct    = Math.min(100, Math.round((upg.currentLevel / upg.maxLevel) * 100));
+          const accent = categoryAccentColor(upg.category);
           return (
             <motion.div
-              key={upgrade.id}
-              layout
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={cn("vt-upgrade-card", categoryAccent(upgrade.category))}
+              key={upg.id}
+              className="vt-upg-card"
+              style={{ "--upg-accent": accent } as React.CSSProperties}
+              initial={{ opacity: 0, x: isRtl ? 14 : -14 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.04, ease: [0.22,1,0.36,1] }}
             >
-              <div className={cn("vt-upgrade-card-bg bg-gradient-to-br", categoryGradient(upgrade.category))} />
-              <div className="vt-upgrade-content">
-                <div className="vt-upgrade-top">
-                  <div className="vt-upgrade-thumb">
-                    {upgrade.imageUrl
-                      ? <img src={upgrade.imageUrl} alt={upgrade.titleEn} className="h-full w-full object-cover rounded-xl" />
-                      : <span className="text-2xl">{upgrade.icon || "⚡"}</span>}
+              <div className="vt-upg-thumb">
+                {upg.imageUrl
+                  ? <img src={upg.imageUrl} alt={upg.titleEn} />
+                  : <span className="vt-upg-emoji">{upg.icon || "⚡"}</span>}
+              </div>
+              <div className="vt-upg-body">
+                <div className="vt-upg-row1">
+                  <div>
+                    <p className="vt-upg-name">{S(upg.titleAr, upg.titleEn)}</p>
+                    <p className="vt-upg-cat">{upg.category.toUpperCase()}</p>
                   </div>
-                  <div className="vt-upgrade-meta">
-                    <h4 className="vt-upgrade-name">{isRtl ? upgrade.titleAr : upgrade.titleEn}</h4>
-                    <span className="vt-upgrade-cat">{upgrade.category.toUpperCase()}</span>
-                  </div>
-                  <span className="vt-upgrade-lvl-badge">{isRtl ? "مستوى" : "Lvl"} {upgrade.currentLevel}/{upgrade.maxLevel}</span>
+                  <span className="vt-upg-level-badge">{upg.currentLevel}/{upg.maxLevel}</span>
                 </div>
-
-                <p className="vt-upgrade-desc">{isRtl ? upgrade.descriptionAr : upgrade.descriptionEn}</p>
-
-                <div className="vt-progress-track vt-progress-track--sm mt-2">
-                  <motion.div className="vt-progress-fill" initial={{ width: 0 }} animate={{ width: `${levelPercent}%` }} transition={{ duration: 0.6 }} />
+                <p className="vt-upg-desc">{S(upg.descriptionAr, upg.descriptionEn)}</p>
+                <div className="vt-upg-prog">
+                  <motion.div
+                    className="vt-upg-prog-fill"
+                    style={{ background: accent }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    transition={{ duration: 0.8, delay: i * 0.04 + 0.2 }}
+                  />
                 </div>
-
-                <div className="vt-boost-grid">
-                  <BoostTag label={isRtl ? "النقر" : "Tap"} value={upgrade.tapBoost} />
-                  <BoostTag label="PPH" value={upgrade.pphBoost} />
-                  <BoostTag label={isRtl ? "الطاقة" : "Energy"} value={upgrade.energyBoost} />
-                  <BoostTag label={isRtl ? "تلقائي" : "Auto"} value={upgrade.autoTapBoost} />
+                <div className="vt-upg-boosts">
+                  {[
+                    { l: S("النقر","Tap"),    v: upg.tapBoost     },
+                    { l: "PPH",              v: upg.pphBoost     },
+                    { l: S("طاقة","Nrg"),    v: upg.energyBoost  },
+                    { l: S("تلقائي","Auto"), v: upg.autoTapBoost },
+                  ].map(b => (
+                    <div key={b.l} className="vt-boost-pill">
+                      <span>{b.l}</span>
+                      <strong>+{b.v}</strong>
+                    </div>
+                  ))}
                 </div>
-
-                <div className="vt-upgrade-actions">
+                <div className="vt-upg-actions">
                   <button
-                    type="button"
-                    className={cn("vt-action-btn vt-action-btn--primary", (!canBuyNow || lockedByLevel || maxed) && "is-disabled")}
-                    disabled={!canBuyNow || lockedByLevel || maxed}
-                    onClick={() => void handleBuyUpgrade(upgrade.id)}
+                    className={cn("vt-btn vt-btn--primary", (!canBuy || locked || maxed) && "vt-btn--disabled")}
+                    disabled={!canBuy || locked || maxed}
+                    onClick={() => void buyUpgrade(upg.id)}
                   >
-                    {maxed ? (isRtl ? "مكتملة ✓" : "Maxed ✓")
-                      : lockedByLevel ? `🔒 ${isRtl ? "يتطلب مستوى" : "Need Lvl"} ${upgrade.unlockLevel}`
-                      : `${isRtl ? "ترقية" : "Upgrade"} — ${formatNumber(cost)}`}
+                    {maxed
+                      ? S("✓ مكتمل","✓ Maxed")
+                      : locked
+                        ? `🔒 ${S("مستوى","Lv")} ${upg.unlockLevel}`
+                        : `${S("ترقية","Upgrade")} · ${formatNumber(cost)}`}
                   </button>
-                  {upgrade.starsPrice ? (
-                    <button type="button" className="vt-action-btn vt-action-btn--stars" onClick={() => handleStarsUpgrade(upgrade)}>
-                      <Star size={12} className="me-1" />
-                      {upgrade.starsPrice} {isRtl ? "نجوم" : "Stars"}
-                    </button>
-                  ) : (
-                    <div className="vt-no-stars">{isRtl ? "لا يوجد عرض نجوم" : "No stars offer"}</div>
-                  )}
+                  {upg.starsPrice
+                    ? <button className="vt-btn vt-btn--stars" onClick={() => void buyWithStars(upg)}><Star size={11} /> {upg.starsPrice}</button>
+                    : <div className="vt-no-buy">—</div>}
                 </div>
               </div>
             </motion.div>
@@ -775,276 +1271,452 @@ export default function App() {
     </div>
   );
 
+  /* ═══════════════════════════════════════════════════════════════════
+     TASKS
+  ═══════════════════════════════════════════════════════════════════ */
   const tasksScreen = (
     <div className="vt-panel">
       <div className="vt-panel-header">
-        <ListChecks size={17} className="text-cyan-400" />
+        <div className="vt-panel-icon" style={{ background:"rgba(6,182,212,0.09)", borderColor:"rgba(6,182,212,0.20)", color:"var(--c-400)" }}>
+          <ListChecks size={16} />
+        </div>
         <h2 className="vt-panel-title">{t("tasks.title")}</h2>
+        <span className="vt-panel-sub" style={{ color:"var(--e-400)" }}>
+          {tasks.filter(t => t.isClaimed).length}/{tasks.length}
+        </span>
       </div>
 
-      <div className="vt-filter-bar">
-        {([{ key: "all", ar: "الكل", en: "All" }, { key: "DAILY", ar: "يومي", en: "Daily" }, { key: "SOCIAL", ar: "اجتماعي", en: "Social" }, { key: "CIPHER", ar: "Cipher", en: "Cipher" }] as const).map((item) => (
-          <button key={item.key} type="button" className={cn("vt-chip", taskFilter === item.key && "is-active")} onClick={() => setTaskFilter(item.key)}>
-            {isRtl ? item.ar : item.en}
+      <div className="vt-chips-row">
+        {(["all","DAILY","SOCIAL","CIPHER"] as const).map(f => (
+          <button
+            key={f}
+            className={cn("vt-chip", taskFilter === f && "vt-chip--active")}
+            onClick={() => setTaskFilter(f)}
+          >
+            {f === "all" ? S("الكل","All") : f}
           </button>
         ))}
       </div>
 
-      <div className="vt-cipher-box">
-        <div className="vt-cipher-header">
-          <Sparkles size={14} className="text-amber-300" />
-          <span>Daily Cipher</span>
+      <div className="vt-cipher-card">
+        <div className="vt-cipher-title">
+          <Sparkles size={14} style={{ color:"var(--g-400)" }} />
+          {S("الشيفرة اليومية","Daily Cipher")}
         </div>
         <div className="vt-cipher-row">
           <input
             className="vt-input"
             placeholder={t("tasks.cipherPlaceholder")}
             value={cipherInput}
-            onChange={(e) => setCipherInput(e.target.value)}
+            onChange={e => setCipherInput(e.target.value)}
           />
           <button
-            type="button"
-            className="vt-action-btn vt-action-btn--outline"
-            onClick={() => setCipherInput(`VT-${new Date().toISOString().slice(8, 10)}${new Date().toISOString().slice(5, 7)}-CIPHER`)}
+            className="vt-btn vt-btn--ghost vt-btn--sm"
+            style={{ flexShrink:0 }}
+            onClick={() => setCipherInput(`VT-${new Date().toISOString().slice(8,10)}${new Date().toISOString().slice(5,7)}-CIPHER`)}
           >
-            Hint
+            💡
           </button>
         </div>
         <p className="vt-cipher-hint">{t("tasks.dailyCipherHint")}</p>
       </div>
 
-      <div className="vt-task-list">
-        {filteredTasks.map((task) => (
-          <motion.div key={task.id} layout initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} className={cn("vt-task-row", task.isClaimed && "is-claimed")}>
+      <div className="vt-tasks-list">
+        {filteredTasks.length === 0 && (
+          <div className="vt-empty">
+            <span className="vt-empty-icon">✅</span>
+            {S("لا توجد مهام.","No tasks yet.")}
+          </div>
+        )}
+        {filteredTasks.map((task, i) => (
+          <motion.div
+            key={task.id}
+            className={cn("vt-task-row", task.isClaimed && "vt-task-row--done")}
+            initial={{ opacity: 0, y: 9 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.04 }}
+          >
             <div className="vt-task-info">
-              <p className="vt-task-name">{isRtl ? task.titleAr : task.titleEn}</p>
+              <p className="vt-task-name">{S(task.titleAr, task.titleEn)}</p>
               <div className="vt-task-meta">
-                <span className="vt-type-badge">{task.type}</span>
+                <span className="vt-task-type">{task.type}</span>
                 <span className="vt-task-reward">+{formatNumber(task.reward)}</span>
               </div>
             </div>
             <button
-              type="button"
-              className={cn("vt-action-btn vt-action-btn--sm", task.isClaimed ? "is-claimed" : "vt-action-btn--primary")}
+              className={cn("vt-btn vt-btn--sm", task.isClaimed ? "vt-btn--done" : "vt-btn--primary")}
               disabled={task.isClaimed}
-              onClick={() => void handleClaimTask(task)}
+              onClick={() => void claimTask(task)}
             >
-              {task.isClaimed ? "✓" : t("tasks.claim")}
+              {task.isClaimed ? S("تم","Done") : t("tasks.claim")}
             </button>
           </motion.div>
         ))}
-        {filteredTasks.length === 0 && (
-          <div className="vt-empty">{isRtl ? "لا توجد مهام ضمن هذا القسم حالياً." : "No tasks in this section right now."}</div>
-        )}
       </div>
     </div>
   );
 
+  /* ═══════════════════════════════════════════════════════════════════
+     FRIENDS
+  ═══════════════════════════════════════════════════════════════════ */
   const friendsScreen = (
     <div className="vt-panel">
       <div className="vt-panel-header">
-        <Users size={17} className="text-violet-400" />
+        <div className="vt-panel-icon" style={{ background:"rgba(139,92,246,0.09)", borderColor:"rgba(139,92,246,0.20)", color:"var(--v-400)" }}>
+          <Users size={16} />
+        </div>
         <h2 className="vt-panel-title">{t("referrals.title")}</h2>
       </div>
 
       <div className="vt-metrics-row">
-        <MetricBox label={t("referrals.level1")} value={String(referralStats?.level1Count ?? referral?.directReferrals ?? 0)} icon="👥" />
-        <MetricBox label={t("referrals.level2")} value={String(referralStats?.level2Count ?? 0)} icon="🌐" />
-        <MetricBox label={t("referrals.estimatedRewards")} value={formatNumber(referralStats?.estimatedRewards ?? 0)} icon="🪙" />
-      </div>
-
-      <div className="vt-referral-box">
-        <p className="vt-section-label">{t("referrals.code")}</p>
-        <div className="vt-code-row">
-          <span className="vt-code-value">{referral?.referralCode}</span>
-          <button type="button" className="vt-action-btn vt-action-btn--outline vt-action-btn--sm" onClick={copyReferralCode}>
-            {isRtl ? "نسخ" : "Copy"}
-          </button>
-        </div>
-        <p className="vt-referral-note">{isRtl ? "مكافأة الدعوة: 1000 نقطة لك + 1000 لصديقك." : "Invite reward: 1000 for you + 1000 for your friend."}</p>
-        <div className="vt-referral-actions">
-          <button type="button" className="vt-action-btn vt-action-btn--primary" onClick={shareReferralLink}>
-            {isRtl ? "مشاركة" : "Share Invite"}
-          </button>
-          <button type="button" className="vt-action-btn vt-action-btn--outline" onClick={copyReferralLink}>
-            {isRtl ? "نسخ الرابط" : "Copy Link"}
-          </button>
-        </div>
-        <p className="vt-link-preview">{referralLink || (isRtl ? "رابط الدعوة غير مفعّل بعد." : "Invite link not configured yet.")}</p>
-      </div>
-
-      <div className="vt-how-works">
-        <p className="vt-section-label">{isRtl ? "كيف تعمل الدعوة؟" : "How It Works"}</p>
         {[
-          isRtl ? "انسخ رابط الدعوة وأرسله لصديقك." : "Copy your invite link and send it.",
-          isRtl ? "الصديق يفتح البوت من نفس الرابط." : "Friend opens the bot using your link.",
-          isRtl ? "يُضاف 1000 نقطة لكل طرف تلقائيًا." : "Both sides get 1000 points automatically."
+          { emoji: "👥", val: String(referralStats?.level1Count ?? referral?.directReferrals ?? 0), lbl: t("referrals.level1") },
+          { emoji: "🌐", val: String(referralStats?.level2Count ?? 0),                               lbl: t("referrals.level2") },
+          { emoji: "🪙", val: formatNumber(referralStats?.estimatedRewards ?? 0),                    lbl: t("referrals.estimatedRewards") },
+        ].map((m, i) => (
+          <motion.div
+            key={i}
+            className="vt-metric-card"
+            initial={{ opacity: 0, scale: 0.86 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: i * 0.07 }}
+          >
+            <span className="vt-metric-emoji">{m.emoji}</span>
+            <p className="vt-metric-val">{m.val}</p>
+            <p className="vt-metric-lbl">{m.lbl}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="vt-ref-card">
+        <p className="vt-sec-label">{t("referrals.code")}</p>
+        <div className="vt-code-row">
+          <span className="vt-ref-code">{referral?.referralCode ?? "—"}</span>
+          <button className="vt-btn vt-btn--ghost vt-btn--sm" onClick={copyCode}>
+            {codeCopied ? S("تم ✓","Done ✓") : S("نسخ","Copy")}
+          </button>
+        </div>
+        <p className="vt-ref-note">
+          {S("مكافأة: 1000 نقطة لك + 1000 لصديقك 🎁","Reward: 1000 pts for you + 1000 for friend 🎁")}
+        </p>
+        <div className="vt-ref-btns">
+          <button className="vt-btn vt-btn--primary" onClick={shareLink}>{S("مشاركة","Share")}</button>
+          <button className="vt-btn vt-btn--ghost"   onClick={copyLink}>{S("نسخ الرابط","Copy Link")}</button>
+        </div>
+        {referralLink && <p className="vt-ref-link">{referralLink}</p>}
+      </div>
+
+      <div className="vt-steps-card">
+        <p className="vt-sec-label">{S("كيف تعمل؟","How it works")}</p>
+        {[
+          S("انسخ رابط الدعوة وأرسله لأصدقائك.", "Copy your invite link and share it."),
+          S("صديقك يفتح البوت من رابطك.", "Your friend opens the bot via your link."),
+          S("1000 نقطة لكل طرف تلقائياً!", "1000 points auto-credited to both sides!"),
         ].map((step, i) => (
-          <div key={i} className="vt-step-row">
+          <div key={i} className="vt-step">
             <span className="vt-step-num">{i + 1}</span>
             <span>{step}</span>
           </div>
         ))}
       </div>
 
-      <div className="vt-top-friends">
-        <p className="vt-section-label">{isRtl ? "أفضل الأصدقاء" : "Top Friends"}</p>
-        {(referralStats?.referrals ?? []).slice(0, 10).map((item) => (
-          <div key={item.id} className="vt-friend-row">
-            <span>{item.name}</span>
-            <span className="vt-friend-pts">{formatNumber(item.points)}</span>
-          </div>
-        ))}
-        {(referralStats?.referrals?.length ?? 0) === 0 && (
-          <p className="vt-empty">{isRtl ? "لا توجد بيانات حالياً." : "No data yet."}</p>
-        )}
-      </div>
+      {(referralStats?.referrals?.length ?? 0) > 0 && (
+        <div className="vt-friends-list-card">
+          <p className="vt-sec-label">{S("أفضل الأصدقاء","Top Friends")}</p>
+          {(referralStats?.referrals ?? []).slice(0, 8).map((f, i) => (
+            <motion.div
+              key={f.id}
+              className="vt-friend-item"
+              initial={{ opacity: 0, x: isRtl ? 9 : -9 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <span className="vt-friend-rank">#{i+1}</span>
+              <span className="vt-friend-name">{f.name}</span>
+              <span className="vt-friend-pts">{formatNumber(f.points)}</span>
+            </motion.div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
+  /* ═══════════════════════════════════════════════════════════════════
+     LEADERBOARD
+  ═══════════════════════════════════════════════════════════════════ */
   const leaderboardScreen = (
     <div className="vt-panel">
       <div className="vt-panel-header">
-        <Trophy size={17} className="text-yellow-400" />
+        <div className="vt-panel-icon" style={{ background:"var(--g-dim)", borderColor:"var(--b-g)", color:"var(--g-400)" }}>
+          <Trophy size={16} />
+        </div>
         <h2 className="vt-panel-title">{t("leaderboard.title")}</h2>
       </div>
 
-      <div className="vt-filter-bar">
-        {(["global", "weekly", "friends"] as BoardType[]).map((type) => (
-          <button key={type} type="button" className={cn("vt-chip", leaderboardType === type && "is-active")} onClick={() => setLeaderboardType(type)}>
+      <div className="vt-chips-row">
+        {(["global","weekly","friends"] as BoardType[]).map(type => (
+          <button
+            key={type}
+            className={cn("vt-chip", boardType === type && "vt-chip--active")}
+            onClick={() => setBoardType(type)}
+          >
             {t(`leaderboard.${type}`)}
           </button>
         ))}
       </div>
 
-      {topThreeLeaders.length > 0 && (
+      {leaderboard.length >= 3 && (
         <div className="vt-podium">
-          {topThreeLeaders.map((item) => (
-            <div key={`top-${item.id}`} className={cn("vt-podium-item", item.rank === 1 && "is-first", item.rank === 2 && "is-second", item.rank === 3 && "is-third")}>
-              <div className="vt-podium-medal">{rankMark(item.rank)}</div>
-              <p className="vt-podium-name">{item.name}</p>
-              <p className="vt-podium-pts">{formatNumber(item.points)}</p>
-            </div>
+          {[
+            { item: leaderboard[1], cls:"vt-pod--2", plinth:"vt-pod-plinth--2", medal:"🥈", delay:0.11 },
+            { item: leaderboard[0], cls:"vt-pod--1", plinth:"vt-pod-plinth--1", medal:"🥇", delay:0.03, crown:true },
+            { item: leaderboard[2], cls:"vt-pod--3", plinth:"vt-pod-plinth--3", medal:"🥉", delay:0.17 },
+          ].map(({ item, cls, plinth, medal, delay, crown }) => (
+            <motion.div
+              key={item?.id}
+              className={cn("vt-pod", cls)}
+              initial={{ opacity: 0, y: 26 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay }}
+            >
+              {crown && <div className="vt-pod-crown">👑</div>}
+              <div className="vt-pod-medal">{medal}</div>
+              <p className="vt-pod-name">{item?.name ?? "-"}</p>
+              <p className="vt-pod-pts">{formatNumber(item?.points ?? 0)}</p>
+              <div className={cn("vt-pod-plinth", plinth)} />
+            </motion.div>
           ))}
         </div>
       )}
 
       <div className="vt-lb-list">
-        {restLeaders.map((item) => (
-          <div key={`${item.id}-${item.rank}`} className={cn("vt-lb-row", item.rank <= 3 && "is-top")}>
-            <div className="vt-lb-rank">#{item.rank}</div>
+        {leaderboard.slice(3).map((item, i) => (
+          <motion.div
+            key={`${item.id}-${item.rank}`}
+            className="vt-lb-row"
+            initial={{ opacity: 0, x: isRtl ? 10 : -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.028 }}
+          >
+            <span className="vt-lb-rank">#{item.rank}</span>
             <span className="vt-lb-name">{item.name}</span>
             <span className="vt-lb-pts">{formatNumber(item.points)}</span>
-          </div>
+          </motion.div>
         ))}
-        {leaderboard.length === 0 && <div className="vt-empty">{isRtl ? "لا توجد بيانات صدارة حالياً." : "No leaderboard data yet."}</div>}
+        {leaderboard.length === 0 && (
+          <div className="vt-empty">
+            <span className="vt-empty-icon">🏆</span>
+            {S("لا توجد بيانات بعد.","No data yet.")}
+          </div>
+        )}
       </div>
     </div>
   );
 
-  const settingsScreen = (
-    <div className="vt-settings-body">
-      <SettingSection icon={<Globe size={15} />} title={isRtl ? "اللغة" : "Language"} desc={isRtl ? "تغيير لغة الواجهة" : "Switch interface language"}>
-        <select className="vt-select" value={i18n.language} onChange={(e) => void i18n.changeLanguage(e.target.value)}>
-          {SUPPORTED_LANGS.map((lang) => <option key={lang} value={lang}>{lang.toUpperCase()}</option>)}
+  /* ═══════════════════════════════════════════════════════════════════
+     SETTINGS CONTENT
+  ═══════════════════════════════════════════════════════════════════ */
+  const settingsContent = (
+    <div className="vt-sett-sections">
+      <div className="vt-sett-card">
+        <div className="vt-sett-header">
+          <div className="vt-sett-header-icon"><Globe size={14} /></div>
+          <div>
+            <p className="vt-sett-title">{S("اللغة","Language")}</p>
+            <p className="vt-sett-desc">{S("تغيير لغة التطبيق","Change app language")}</p>
+          </div>
+        </div>
+        <select
+          className="vt-select"
+          value={i18n.language}
+          onChange={e => void i18n.changeLanguage(e.target.value)}
+        >
+          {SUPPORTED_LANGS.map(l => (
+            <option key={l} value={l}>{l.toUpperCase()}</option>
+          ))}
         </select>
-      </SettingSection>
+      </div>
 
-      <SettingSection icon={<Wallet size={15} />} title={isRtl ? "المحفظة" : "Wallet"} desc={isRtl ? "ربط TON وطلب الأيردروب" : "Connect TON & request airdrop"}>
-        <div className="space-y-2">
-          <Suspense fallback={<div className="vt-wallet-loading">{isRtl ? "تحميل..." : "Loading..."}</div>}>
-            <TonWalletConnectLazy className="!w-full" manifestUrl={tonManifestUrl} />
+      <div className="vt-sett-card">
+        <div className="vt-sett-header">
+          <div className="vt-sett-header-icon"><Wallet size={14} /></div>
+          <div>
+            <p className="vt-sett-title">{S("المحفظة","Wallet")}</p>
+            <p className="vt-sett-desc">{S("ربط TON والأيردروب","Connect TON & airdrop")}</p>
+          </div>
+        </div>
+        <div className="vt-sett-group">
+          <Suspense fallback={<div className="vt-loader-row">{S("جاري التحميل...","Loading...")}</div>}>
+            <TonWalletLazy className="!w-full" manifestUrl={tonManifestUrl} />
           </Suspense>
-          <input className="vt-input" placeholder={t("wallet.placeholder")} value={walletAddress} onChange={(e) => setWalletAddress(e.target.value)} />
-          <button type="button" className="vt-action-btn vt-action-btn--primary w-full" onClick={() => void handleClaimAirdrop()}>
+          <input
+            className="vt-input"
+            placeholder={t("wallet.placeholder")}
+            value={walletAddress}
+            onChange={e => setWalletAddress(e.target.value)}
+          />
+          <button className="vt-btn vt-btn--gold vt-btn--full vt-btn--lg" onClick={() => void claimAirdrop()}>
             {t("wallet.claim")}
           </button>
-          <p className="text-xs text-slate-400">{t("wallet.estimated")}: {formatNumber(Number(user.points) / 1000)}</p>
+          <p className="vt-sett-note">
+            {t("wallet.estimated")}: ~{formatNumber(Math.floor(numericFromStr(user.points) / 1000))} JETTON
+          </p>
         </div>
-      </SettingSection>
+      </div>
 
-      <SettingSection icon={<Bot size={15} />} title={isRtl ? "الحساب" : "Account"} desc={isRtl ? "بيانات الملف والاتصال" : "Profile & connection status"}>
-        <div className="vt-mini-stats">
-          <MiniStat label={isRtl ? "الاسم" : "Name"}         value={displayName}            icon={<Crown size={12} />} />
-          <MiniStat label={isRtl ? "الاتصال" : "Status"}     value={t("common.connected")}  icon={<Sparkles size={12} />} />
-          <MiniStat label={isRtl ? "النقاط" : "Points"}      value={formatNumber(user.points)} icon={<Coins size={12} />} />
-          <MiniStat label={isRtl ? "نجوم مصروفة" : "Stars"} value={formatNumber(user.starsSpent)} icon={<Star size={12} />} />
+      <div className="vt-sett-card">
+        <div className="vt-sett-header">
+          <div className="vt-sett-header-icon"><Bot size={14} /></div>
+          <div>
+            <p className="vt-sett-title">{S("الحساب","Account")}</p>
+            <p className="vt-sett-desc">{S("معلومات حسابك","Your account info")}</p>
+          </div>
         </div>
-      </SettingSection>
+        <div className="vt-mini-grid">
+          {[
+            { l: S("الاسم","Name"),    v: displayName,                        i: <Crown size={10} />    },
+            { l: S("الحالة","Status"), v: t("common.connected"),               i: <Sparkles size={10} /> },
+            { l: S("النقاط","Points"), v: formatNumber(user.points),           i: <Coins size={10} />    },
+            { l: S("النجوم","Stars"),  v: formatNumber(user.starsSpent ?? 0),  i: <Star size={10} />     },
+          ].map(m => (
+            <div key={m.l} className="vt-mini-card">
+              <div className="vt-mini-head">{m.i}<span>{m.l}</span></div>
+              <p className="vt-mini-val">{m.v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <div className="vt-info-box">
-        {isRtl ? "الشراء بالنجوم يتم من داخل التطبيق مباشرة من بطاقة الترقية." : "Stars purchases are handled directly from upgrade cards inside the mini app."}
+      {/* Stats summary in settings */}
+      <div className="vt-sett-card">
+        <div className="vt-sett-header">
+          <div className="vt-sett-header-icon"><Award size={14} /></div>
+          <div>
+            <p className="vt-sett-title">{S("إنجازاتك","Your Stats")}</p>
+            <p className="vt-sett-desc">{S("ملخص الأداء","Performance summary")}</p>
+          </div>
+        </div>
+        <div className="vt-mini-grid">
+          {[
+            { l: S("المستوى","Level"),   v: String(lvl)                              },
+            { l: "PPH",                  v: formatNumber(user.pph)                   },
+            { l: S("الطاقة","Energy"),   v: `${user.energy}/${user.maxEnergy}`       },
+            { l: S("التابز","Total Tap"), v: formatNumber(user.totalTaps)            },
+          ].map(m => (
+            <div key={m.l} className="vt-mini-card">
+              <div className="vt-mini-head"><ChevronUp size={10} /><span>{m.l}</span></div>
+              <p className="vt-mini-val">{m.v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="vt-info-note">
+        <Sparkles size={12} style={{ flexShrink:0, marginTop:1, color:"var(--g-400)" }} />
+        <span>{S("شراء النجوم يتم مباشرة من بطاقة الترقية.","Stars purchases are made directly from upgrade cards.")}</span>
       </div>
     </div>
   );
 
-  const currentScreen =
-    activeTab === "home"        ? homeScreen :
-    activeTab === "upgrades"    ? upgradesScreen :
-    activeTab === "tasks"       ? tasksScreen :
-    activeTab === "friends"     ? friendsScreen :
-                                  leaderboardScreen;
+  /* ═══════════════════════════════════════════════════════════════════
+     SCREEN MAP
+  ═══════════════════════════════════════════════════════════════════ */
+  const screenMap: Record<ActiveTab, React.ReactNode> = {
+    home:        homeScreen,
+    upgrades:    upgradesScreen,
+    tasks:       tasksScreen,
+    friends:     friendsScreen,
+    leaderboard: leaderboardScreen,
+  };
 
-  // ─── Layout ──────────────────────────────────────────────────────────────────
-
+  /* ═══════════════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════════════ */
   return (
-    <>
-      {/* Injected styles */}
-      <style>{vtStyles}</style>
+    <div className="vt-shell">
+      {/* Achievement popups — fixed top */}
+      <AchievementToast items={achievements} onDone={dismissAchievement} />
 
-      <div className="vt-shell">
-        {/* Animated background */}
-        <div className="vt-bg" aria-hidden="true">
-          <div className="vt-bg-orb vt-bg-orb--1" />
-          <div className="vt-bg-orb vt-bg-orb--2" />
-          <div className="vt-bg-orb vt-bg-orb--3" />
-          <div className="vt-bg-grid" />
-        </div>
-
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={activeTab}
-            custom={tabDirection}
-            initial={{ opacity: 0, x: tabDirection > 0 ? 28 : -28 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: tabDirection > 0 ? -20 : 20 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="vt-screen-wrap"
-          >
-            {currentScreen}
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Bottom Nav */}
-        <nav className="vt-nav">
-          <div className="vt-nav-track">
-            <motion.div
-              className="vt-nav-indicator"
-              layout
-              transition={{ type: "spring", stiffness: 400, damping: 34, mass: 0.35 }}
-              style={{ width: `${100 / NAV_ITEMS.length}%`, left: `${(navActiveIndex * 100) / NAV_ITEMS.length}%` }}
-            />
-          </div>
-          {NAV_ITEMS.map((item) => {
-            const active = activeTab === item.key;
-            const Icon = item.icon;
-            return (
-              <button key={item.key} type="button" className={cn("vt-nav-item", active && "is-active")} onClick={() => handleTabChange(item.key)}>
-                <Icon size={18} />
-                <span>{isRtl ? item.labelAr : item.labelEn}</span>
-              </button>
-            );
-          })}
-        </nav>
+      {/* Background */}
+      <div className="vt-bg" aria-hidden>
+        <div className="vt-bg-blob vt-bg-blob--gold" />
+        <div className="vt-bg-blob vt-bg-blob--teal" />
+        <div className="vt-bg-blob vt-bg-blob--violet" />
+        <div className="vt-bg-blob vt-bg-blob--rose" />
+        <div className="vt-bg-grid" />
+        <div className="vt-bg-vignette" />
       </div>
 
-      {/* Settings Drawer */}
+      {/* Screens */}
+      <AnimatePresence mode="wait" initial={false} custom={tabDir}>
+        <motion.div
+          key={activeTab}
+          className="vt-content"
+          custom={tabDir}
+          variants={screenVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={SCREEN_TRANSITION}
+        >
+          {screenMap[activeTab]}
+        </motion.div>
+      </AnimatePresence>
+
+      {/* ── Bottom Nav ── */}
+      <nav className="vt-nav" role="navigation" aria-label={S("القائمة الرئيسية","Main navigation")}>
+        <div className="vt-nav-inner">
+          <motion.div
+            className="vt-nav-pill"
+            layout layoutId="nav-pill"
+            style={{
+              width: `${100 / NAV_ITEMS.length}%`,
+              left:  `${(navActiveIdx * 100) / NAV_ITEMS.length}%`,
+            }}
+            transition={{ type:"spring", stiffness:520, damping:42, mass:0.24 }}
+          />
+
+          {NAV_ITEMS.map(item => {
+            const active = activeTab === item.key;
+            const Icon   = item.icon;
+            return (
+              <motion.button
+                key={item.key}
+                className={cn("vt-nav-item", active && "vt-nav-item--active")}
+                onClick={() => changeTab(item.key)}
+                whileTap={{ scale: 0.78 }}
+                aria-label={isRtl ? item.labelAr : item.labelEn}
+                aria-current={active ? "page" : undefined}
+              >
+                <motion.span
+                  className="vt-nav-icon"
+                  animate={active ? { y: -2.5, scale: 1.14 } : { y: 0, scale: 1 }}
+                  transition={{ type:"spring", stiffness:440, damping:26 }}
+                >
+                  <span className="vt-nav-icon-glow" />
+                  <Icon size={22} strokeWidth={active ? 2.5 : 1.7} />
+                </motion.span>
+                <motion.span
+                  className="vt-nav-label"
+                  animate={{ opacity: active ? 1 : 0.42 }}
+                  transition={{ duration: 0.14 }}
+                >
+                  {isRtl ? item.labelAr : item.labelEn}
+                </motion.span>
+              </motion.button>
+            );
+          })}
+        </div>
+        <div className="vt-nav-safe" />
+      </nav>
+
+      {/* ── Settings Drawer ── */}
       <AnimatePresence>
         {settingsOpen && (
           <>
             <motion.button
               type="button"
-              aria-label="close settings"
+              aria-label={S("إغلاق","Close settings")}
               className="vt-overlay"
               onClick={() => setSettingsOpen(false)}
               initial={{ opacity: 0 }}
@@ -1054,956 +1726,24 @@ export default function App() {
             />
             <motion.div
               className="vt-drawer"
-              initial={{ opacity: 0, y: 40 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 32 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              role="dialog"
+              aria-label={S("الإعدادات","Settings")}
+              aria-modal
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type:"spring", stiffness:400, damping:36, mass:0.48 }}
             >
               <div className="vt-drawer-handle" />
-              <div className="vt-drawer-head">
-                <p className="vt-drawer-title">{isRtl ? "الإعدادات والتحكم" : "Settings & Control"}</p>
-                <button type="button" className="vt-close-btn" onClick={() => setSettingsOpen(false)}>×</button>
+              <div className="vt-drawer-header">
+                <p className="vt-drawer-title">{S("الإعدادات","Settings")}</p>
+                <button className="vt-drawer-close" onClick={() => setSettingsOpen(false)}>✕</button>
               </div>
-              {settingsScreen}
+              <div className="vt-drawer-scroll">{settingsContent}</div>
             </motion.div>
           </>
         )}
       </AnimatePresence>
-    </>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function StatBox({ label, value, icon, color }: { label: string; value: string; icon: React.ReactNode; color: "amber" | "violet" | "cyan" }) {
-  const colorMap = { amber: "text-amber-400 bg-amber-400/10", violet: "text-violet-400 bg-violet-400/10", cyan: "text-cyan-400 bg-cyan-400/10" };
-  return (
-    <div className="vt-stat-box">
-      <div className={cn("vt-stat-icon", colorMap[color])}>{icon}</div>
-      <p className="vt-stat-label">{label}</p>
-      <p className="vt-stat-value">{value}</p>
     </div>
   );
 }
-
-function MiniStat({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <div className="vt-mini-stat">
-      <div className="vt-mini-stat-head">{icon}<span>{label}</span></div>
-      <p className="vt-mini-stat-val">{value}</p>
-    </div>
-  );
-}
-
-function MetricBox({ label, value, icon }: { label: string; value: string; icon: string }) {
-  return (
-    <div className="vt-metric-box">
-      <span className="vt-metric-icon">{icon}</span>
-      <p className="vt-metric-value">{value}</p>
-      <p className="vt-metric-label">{label}</p>
-    </div>
-  );
-}
-
-function BoostTag({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="vt-boost-tag">
-      <span className="vt-boost-label">{label}</span>
-      <span className="vt-boost-value">+{value}</span>
-    </div>
-  );
-}
-
-function SettingSection({ icon, title, desc, children }: { icon: React.ReactNode; title: string; desc: string; children: React.ReactNode }) {
-  return (
-    <div className="vt-setting-section">
-      <div className="vt-setting-header">
-        <span className="vt-setting-icon">{icon}</span>
-        <div>
-          <p className="vt-setting-title">{title}</p>
-          <p className="vt-setting-desc">{desc}</p>
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const vtStyles = `
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
-
-:root {
-  --bg:       #07080f;
-  --surface:  #0d0f1c;
-  --card:     #111424;
-  --card2:    #161929;
-  --border:   rgba(255,255,255,0.07);
-  --border2:  rgba(255,255,255,0.11);
-  --text:     #e8eaf2;
-  --muted:    #6b7280;
-  --gold:     #f5c842;
-  --gold-dim: rgba(245,200,66,0.15);
-  --violet:   #8b5cf6;
-  --cyan:     #22d3ee;
-  --amber:    #fbbf24;
-  --green:    #4ade80;
-  --radius:   14px;
-  --radius-sm:8px;
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: 'Space Grotesk', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  overflow-x: hidden;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* Shell */
-.vt-shell {
-  position: relative;
-  max-width: 430px;
-  margin: 0 auto;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* Background */
-.vt-bg {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-.vt-bg-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.18;
-}
-.vt-bg-orb--1 { width: 320px; height: 320px; background: #7c3aed; top: -80px; left: -60px; animation: orbFloat1 14s ease-in-out infinite; }
-.vt-bg-orb--2 { width: 240px; height: 240px; background: #0891b2; bottom: 100px; right: -50px; animation: orbFloat2 18s ease-in-out infinite; }
-.vt-bg-orb--3 { width: 180px; height: 180px; background: #f59e0b; top: 50%; left: 50%; transform: translate(-50%,-50%); animation: orbFloat3 22s ease-in-out infinite; }
-@keyframes orbFloat1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(20px,30px)} }
-@keyframes orbFloat2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-18px,-22px)} }
-@keyframes orbFloat3 { 0%,100%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.15)} }
-
-.vt-bg-grid {
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-
-/* Loading */
-.vt-loading-shell, .vt-guard-shell {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 100dvh;
-  gap: 16px;
-}
-.vt-loader-orb {
-  position: relative;
-  width: 72px; height: 72px;
-  display: flex; align-items: center; justify-content: center;
-}
-.vt-loader-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 3px solid transparent;
-  border-top-color: var(--gold);
-  border-right-color: var(--violet);
-}
-.vt-loader-logo {
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--gold);
-}
-.vt-loader-text { font-size: 14px; color: var(--muted); }
-
-/* Guard Card */
-.vt-guard-card {
-  background: var(--card);
-  border: 1px solid var(--border2);
-  border-radius: 20px;
-  padding: 28px 24px;
-  max-width: 340px;
-  width: 90%;
-  text-align: center;
-}
-.vt-guard-icon {
-  width: 56px; height: 56px;
-  background: rgba(245,200,66,0.12);
-  border: 1px solid rgba(245,200,66,0.3);
-  border-radius: 16px;
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 14px;
-  color: var(--gold);
-}
-.vt-guard-title { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
-.vt-guard-body  { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
-.vt-guard-hint  { font-size: 12px; color: rgba(107,114,128,0.7); }
-
-/* Screen Wrap */
-.vt-screen-wrap {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 16px 14px 90px;
-  scrollbar-width: none;
-}
-.vt-screen-wrap::-webkit-scrollbar { display: none; }
-
-/* ── Home Screen ── */
-.vt-home-screen { display: flex; flex-direction: column; gap: 12px; }
-
-.vt-home-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.vt-brand { display: flex; align-items: center; gap: 10px; }
-.vt-brand-badge {
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
-  font-size: 13px;
-  width: 36px; height: 36px;
-  background: linear-gradient(135deg, var(--gold), #f97316);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  color: #0a0b10;
-}
-.vt-brand-name { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
-.vt-brand-tagline { font-size: 11px; color: var(--muted); }
-.vt-header-actions { display: flex; gap: 8px; }
-
-/* Icon Buttons */
-.vt-icon-btn {
-  width: 36px; height: 36px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: var(--muted);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.vt-icon-btn:hover { border-color: var(--border2); color: var(--text); }
-.vt-icon-btn--trophy { color: var(--gold); border-color: rgba(245,200,66,0.25); background: rgba(245,200,66,0.08); }
-
-/* Player Card */
-.vt-player-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.vt-player-avatar {
-  width: 42px; height: 42px;
-  background: linear-gradient(135deg, var(--violet), #ec4899);
-  border-radius: 12px;
-  font-weight: 700; font-size: 17px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.vt-player-info { flex: 1; min-width: 0; }
-.vt-player-name  { font-size: 15px; font-weight: 600; truncate: ellipsis; overflow: hidden; white-space: nowrap; }
-.vt-player-level { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.vt-online-dot {
-  width: 9px; height: 9px;
-  background: var(--green);
-  border-radius: 50%;
-  box-shadow: 0 0 6px var(--green);
-  flex-shrink: 0;
-}
-
-/* Event Banner */
-.vt-event-banner {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: linear-gradient(135deg, rgba(245,200,66,0.1), rgba(249,115,22,0.08));
-  border: 1px solid rgba(245,200,66,0.2);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 12px;
-  color: rgba(253,230,138,0.9);
-}
-
-/* Balance Card */
-.vt-balance-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 18px 16px;
-  text-align: center;
-}
-.vt-balance-amount {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: -1px;
-  background: linear-gradient(135deg, #fff 40%, var(--gold));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-.vt-balance-label { font-size: 12px; color: var(--muted); margin: 4px 0 14px; }
-.vt-progress-wrap {}
-.vt-progress-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
-.vt-progress-pct { color: var(--gold); }
-
-/* Progress Track */
-.vt-progress-track {
-  height: 6px;
-  background: rgba(255,255,255,0.07);
-  border-radius: 99px;
-  overflow: hidden;
-}
-.vt-progress-track--sm { height: 4px; }
-.vt-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--violet), var(--gold));
-  border-radius: 99px;
-  transition: width 0.6s ease;
-}
-.vt-progress-fill--energy {
-  background: linear-gradient(90deg, var(--cyan), var(--green));
-}
-
-/* Stats Grid */
-.vt-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.vt-stat-box {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px;
-  display: flex; flex-direction: column; align-items: center; gap: 5px;
-}
-.vt-stat-icon {
-  width: 26px; height: 26px;
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-}
-.vt-stat-label { font-size: 10px; color: var(--muted); text-align: center; }
-.vt-stat-value  { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-
-/* Energy Bar */
-.vt-energy-bar {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-}
-.vt-energy-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 7px; }
-.vt-energy-pct { color: var(--cyan); }
-
-/* Tap Zone */
-.vt-tap-zone {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 0;
-}
-
-/* Floating Gains */
-.vt-floating-gain {
-  position: absolute;
-  z-index: 10;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--gold);
-  text-shadow: 0 0 10px rgba(245,200,66,0.5);
-  pointer-events: none;
-}
-.vt-floating-gain.is-burst {
-  font-size: 20px;
-  color: #fff;
-  text-shadow: 0 0 16px rgba(245,200,66,0.9);
-}
-
-/* Coin Button */
-.vt-coin-btn {
-  position: relative;
-  width: 160px; height: 160px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  background: none;
-  outline: none;
-  transition: transform 0.1s;
-}
-.vt-coin-glow {
-  position: absolute;
-  inset: -20px;
-  background: radial-gradient(circle, rgba(245,200,66,0.18) 0%, transparent 65%);
-  border-radius: 50%;
-  pointer-events: none;
-  animation: glowPulse 2.5s ease-in-out infinite;
-}
-@keyframes glowPulse { 0%,100%{opacity:0.6;transform:scale(1)} 50%{opacity:1;transform:scale(1.08)} }
-
-.vt-coin-face {
-  position: relative;
-  z-index: 2;
-  width: 100%; height: 100%;
-  border-radius: 50%;
-  background: conic-gradient(from 180deg, #1a1d30, #252848, #1a1d30);
-  border: 3px solid rgba(245,200,66,0.4);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 6px;
-  box-shadow:
-    0 0 0 1px rgba(245,200,66,0.15),
-    inset 0 2px 20px rgba(255,255,255,0.04),
-    0 12px 40px rgba(0,0,0,0.5);
-}
-.vt-coin-btn.is-tapping .vt-coin-face {
-  border-color: rgba(245,200,66,0.7);
-  box-shadow: 0 0 0 1px rgba(245,200,66,0.4), 0 0 30px rgba(245,200,66,0.25), inset 0 2px 20px rgba(255,255,255,0.06), 0 12px 40px rgba(0,0,0,0.5);
-}
-
-.vt-coin-eyes { display: flex; gap: 10px; }
-.vt-coin-eye {
-  width: 9px; height: 9px;
-  background: var(--gold);
-  border-radius: 50%;
-  box-shadow: 0 0 6px var(--gold);
-}
-
-.vt-coin-label {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--gold);
-  letter-spacing: 2px;
-}
-
-.vt-coin-ring {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.vt-coin-ring--1 {
-  inset: -8px;
-  border: 1px solid rgba(245,200,66,0.12);
-  animation: ringPulse 3s ease-in-out infinite;
-}
-.vt-coin-ring--2 {
-  inset: -16px;
-  border: 1px solid rgba(245,200,66,0.06);
-  animation: ringPulse 3s ease-in-out infinite 0.8s;
-}
-@keyframes ringPulse { 0%,100%{opacity:0.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.02)} }
-
-.vt-tap-hint { font-size: 11px; color: var(--muted); text-align: center; }
-
-/* Tap Controls */
-.vt-tap-controls { display: flex; align-items: center; gap: 12px; width: 100%; justify-content: center; }
-
-.vt-sync-badge {
-  display: flex; align-items: center; gap: 5px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 99px;
-  padding: 5px 10px;
-  font-size: 11px;
-  color: var(--muted);
-}
-.vt-sync-badge.is-live { border-color: rgba(74,222,128,0.3); color: var(--green); }
-
-.vt-pulse-dot {
-  width: 6px; height: 6px;
-  background: var(--muted);
-  border-radius: 50%;
-}
-.vt-pulse-dot.is-on {
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
-  animation: dotBlink 1s ease-in-out infinite;
-}
-@keyframes dotBlink { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-/* Turbo Button */
-.vt-turbo-btn {
-  display: flex; align-items: center; gap: 6px;
-  background: linear-gradient(135deg, var(--violet), #a855f7);
-  border: none;
-  border-radius: 99px;
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 4px 16px rgba(139,92,246,0.35);
-  font-family: inherit;
-  transition: all 0.15s;
-}
-.vt-turbo-btn:hover:not(.is-disabled) { box-shadow: 0 6px 24px rgba(139,92,246,0.5); transform: translateY(-1px); }
-.vt-turbo-btn.is-disabled { opacity: 0.45; cursor: not-allowed; }
-
-/* ── Panel ── */
-.vt-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.vt-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.vt-panel-title { font-size: 18px; font-weight: 700; }
-
-/* Filter Bar */
-.vt-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.vt-chip {
-  padding: 5px 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 99px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s;
-}
-.vt-chip:hover { border-color: var(--border2); color: var(--text); }
-.vt-chip.is-active {
-  background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(245,200,66,0.1));
-  border-color: rgba(139,92,246,0.45);
-  color: var(--text);
-}
-
-/* Card List */
-.vt-card-list { display: flex; flex-direction: column; gap: 10px; }
-
-/* Upgrade Card */
-.vt-upgrade-card {
-  position: relative;
-  background: var(--card);
-  border: 1px solid;
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.vt-upgrade-card-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.vt-upgrade-content { position: relative; z-index: 1; padding: 14px; }
-.vt-upgrade-top { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
-.vt-upgrade-thumb {
-  width: 48px; height: 48px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-.vt-upgrade-meta { flex: 1; min-width: 0; }
-.vt-upgrade-name { font-size: 14px; font-weight: 700; line-height: 1.3; }
-.vt-upgrade-cat  { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.vt-upgrade-lvl-badge {
-  font-size: 11px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid var(--border);
-  border-radius: 99px;
-  padding: 3px 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.vt-upgrade-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
-
-.vt-boost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 8px; }
-.vt-boost-tag {
-  display: flex; align-items: center; justify-content: space-between;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 5px 8px;
-}
-.vt-boost-label { font-size: 11px; color: var(--muted); }
-.vt-boost-value { font-size: 12px; font-weight: 600; color: var(--green); }
-
-.vt-upgrade-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-
-/* Action Buttons */
-.vt-action-btn {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border: none;
-  font-family: inherit;
-  transition: all 0.15s;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-  white-space: nowrap;
-}
-.vt-action-btn.w-full { width: 100%; }
-.vt-action-btn--primary {
-  background: linear-gradient(135deg, var(--violet), #a855f7);
-  color: #fff;
-  box-shadow: 0 3px 12px rgba(139,92,246,0.3);
-}
-.vt-action-btn--primary:hover:not(.is-disabled):not(:disabled) { box-shadow: 0 5px 20px rgba(139,92,246,0.45); transform: translateY(-1px); }
-.vt-action-btn--outline {
-  background: transparent;
-  border: 1px solid var(--border2);
-  color: var(--text);
-}
-.vt-action-btn--outline:hover { border-color: rgba(255,255,255,0.2); }
-.vt-action-btn--stars {
-  background: rgba(234,179,8,0.12);
-  border: 1px solid rgba(234,179,8,0.3);
-  color: var(--gold);
-}
-.vt-action-btn--stars:hover { background: rgba(234,179,8,0.2); }
-.vt-action-btn--sm { padding: 6px 10px; font-size: 12px; }
-.vt-action-btn.is-disabled, .vt-action-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-.vt-action-btn.is-claimed { background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--muted); }
-.vt-no-stars { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-
-/* Tasks */
-.vt-cipher-box {
-  background: var(--card);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  padding: 14px;
-}
-.vt-cipher-header { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 10px; color: rgba(253,230,138,0.9); }
-.vt-cipher-row { display: flex; gap: 8px; }
-.vt-cipher-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
-
-.vt-input {
-  flex: 1;
-  width: 100%;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  font-size: 13px;
-  color: var(--text);
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.vt-input:focus { border-color: rgba(139,92,246,0.5); }
-
-.vt-task-list { display: flex; flex-direction: column; gap: 8px; }
-.vt-task-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  transition: border-color 0.15s;
-}
-.vt-task-row:hover { border-color: var(--border2); }
-.vt-task-row.is-claimed { opacity: 0.5; }
-.vt-task-info { flex: 1; min-width: 0; }
-.vt-task-name { font-size: 13px; font-weight: 600; }
-.vt-task-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
-.vt-type-badge {
-  font-size: 10px;
-  padding: 2px 6px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--border);
-  border-radius: 99px;
-  color: var(--muted);
-}
-.vt-task-reward { font-size: 11px; color: var(--green); font-weight: 600; }
-
-/* Friends */
-.vt-metrics-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.vt-metric-box {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  text-align: center;
-}
-.vt-metric-icon { font-size: 18px; display: block; margin-bottom: 5px; }
-.vt-metric-value { font-size: 15px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-.vt-metric-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
-
-.vt-referral-box {
-  background: var(--card);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  padding: 14px;
-}
-.vt-section-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-.vt-code-row {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 10px; gap: 8px;
-}
-.vt-code-value {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: var(--gold);
-}
-.vt-referral-note { font-size: 11px; color: var(--muted); margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.04); border-radius: 7px; }
-.vt-referral-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.vt-link-preview { font-size: 10px; color: rgba(107,114,128,0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.vt-how-works {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-}
-.vt-step-row { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; color: var(--muted); margin-top: 7px; }
-.vt-step-num {
-  width: 20px; height: 20px;
-  background: rgba(139,92,246,0.2);
-  border-radius: 50%;
-  font-size: 11px; font-weight: 700; color: var(--violet);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-
-.vt-top-friends {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-}
-.vt-friend-row {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 13px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--border);
-}
-.vt-friend-row:last-child { border-bottom: none; }
-.vt-friend-pts { font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--gold); }
-
-/* Leaderboard */
-.vt-podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.vt-podium-item {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 8px;
-  text-align: center;
-  transition: transform 0.15s;
-}
-.vt-podium-item:hover { transform: translateY(-2px); }
-.vt-podium-item.is-first { border-color: rgba(245,200,66,0.45); background: rgba(245,200,66,0.06); }
-.vt-podium-item.is-second { border-color: rgba(209,213,219,0.35); }
-.vt-podium-item.is-third  { border-color: rgba(249,115,22,0.35); }
-.vt-podium-medal { font-size: 24px; margin-bottom: 5px; }
-.vt-podium-name { font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vt-podium-pts  { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
-
-.vt-lb-list { display: flex; flex-direction: column; gap: 6px; }
-.vt-lb-row {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-}
-.vt-lb-row.is-top { border-color: rgba(245,200,66,0.2); background: rgba(245,200,66,0.04); }
-.vt-lb-rank { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 28px; font-family: 'JetBrains Mono', monospace; }
-.vt-lb-name { flex: 1; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vt-lb-pts  { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--gold); }
-
-/* Empty State */
-.vt-empty {
-  text-align: center;
-  font-size: 13px;
-  color: var(--muted);
-  padding: 20px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-/* Bottom Nav */
-.vt-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  max-width: 430px;
-  margin: 0 auto;
-  z-index: 50;
-  background: rgba(7,8,15,0.9);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border);
-  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-}
-.vt-nav-track { position: relative; height: 3px; background: var(--border); border-radius: 99px; margin: 0 8px 6px; }
-.vt-nav-indicator {
-  position: absolute;
-  height: 100%;
-  background: linear-gradient(90deg, var(--violet), var(--gold));
-  border-radius: 99px;
-  transition: left 0.3s;
-}
-.vt-nav > .vt-nav-track ~ * { display: flex; }
-.vt-nav { display: flex; flex-direction: column; }
-.vt-nav > :last-child, .vt-nav > *:not(.vt-nav-track) {
-  /* handled inline */
-}
-/* Correction: nav items row */
-.vt-nav { flex-direction: column; }
-.vt-nav-items-row { display: flex; }
-
-/* Inline nav items */
-.vt-nav .vt-nav-item, button.vt-nav-item {
-  flex: 1;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  padding: 6px 4px;
-  background: none; border: none; cursor: pointer;
-  font-size: 11px; font-weight: 500; color: var(--muted);
-  font-family: inherit;
-  transition: color 0.15s;
-}
-.vt-nav-item.is-active { color: var(--text); }
-.vt-nav-item.is-active svg { filter: drop-shadow(0 0 4px rgba(245,200,66,0.5)); color: var(--gold); }
-
-/* Nav layout fix */
-.vt-nav { padding: 0 0 calc(8px + env(safe-area-inset-bottom)); flex-direction: column; }
-.vt-nav-track { flex-shrink: 0; height: 2px; margin: 0; position: relative; }
-.vt-nav > .vt-nav-item { flex-direction: column; }
-
-/* Nav items wrapper */
-.vt-nav-row {
-  display: flex;
-}
-.vt-nav-row .vt-nav-item {
-  flex: 1;
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 7px 4px 5px;
-  background: none; border: none; cursor: pointer;
-  font-size: 10px; font-weight: 500; color: var(--muted);
-  font-family: inherit; transition: color 0.15s;
-}
-.vt-nav-row .vt-nav-item.is-active { color: var(--text); }
-.vt-nav-row .vt-nav-item.is-active svg { color: var(--gold); filter: drop-shadow(0 0 4px rgba(245,200,66,0.4)); }
-
-/* Settings Overlay & Drawer */
-.vt-overlay {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 60;
-  border: none; cursor: pointer;
-}
-.vt-drawer {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  max-width: 430px;
-  margin: 0 auto;
-  z-index: 70;
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-bottom: none;
-  border-radius: 20px 20px 0 0;
-  padding: 0 16px calc(28px + env(safe-area-inset-bottom));
-  max-height: 85dvh;
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.vt-drawer::-webkit-scrollbar { display: none; }
-.vt-drawer-handle {
-  width: 36px; height: 4px;
-  background: var(--border2);
-  border-radius: 99px;
-  margin: 12px auto 8px;
-}
-.vt-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 12px; }
-.vt-drawer-title { font-size: 15px; font-weight: 700; }
-.vt-close-btn {
-  width: 30px; height: 30px;
-  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1;
-}
-
-/* Settings Body */
-.vt-settings-body { display: flex; flex-direction: column; gap: 12px; }
-.vt-setting-section {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-}
-.vt-setting-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
-.vt-setting-icon {
-  width: 30px; height: 30px;
-  background: rgba(139,92,246,0.15);
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--violet); flex-shrink: 0; margin-top: 1px;
-}
-.vt-setting-title { font-size: 13px; font-weight: 600; }
-.vt-setting-desc  { font-size: 11px; color: var(--muted); margin-top: 1px; }
-
-.vt-select {
-  width: 100%;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  font-size: 13px;
-  color: var(--text);
-  font-family: inherit;
-  outline: none;
-}
-
-.vt-mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.vt-mini-stat {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px;
-}
-.vt-mini-stat-head { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-.vt-mini-stat-val  { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.vt-wallet-loading {
-  height: 44px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: var(--muted);
-}
-
-.vt-info-box {
-  background: rgba(245,200,66,0.06);
-  border: 1px solid rgba(245,200,66,0.2);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  font-size: 12px;
-  color: rgba(253,230,138,0.85);
-}
-`;

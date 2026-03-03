@@ -1,4 +1,4 @@
-import type { LeaderboardItem, Task, Upgrade, User } from "@/types/api";
+import type { LeaderboardItem, Task, UiSettings, Upgrade, User } from "@/types/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 
@@ -63,6 +63,7 @@ export const api = {
       upgrades: Upgrade[];
       activeEvents: Array<{ id: string; nameAr: string; nameEn: string; multiplier: number }>;
       referral: { directReferrals: number; referralCode: string };
+      uiSettings?: UiSettings;
     }>("/game/me");
   },
   tap(taps: number) {

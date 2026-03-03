@@ -21,4 +21,7 @@ declare module "lucide-react" {
   export const Users: any;
   export const Wallet: any;
   export const Zap: any;
+  export const Flame: any;
+  export const Award: any;
+  export const ChevronUp: any;
 }
