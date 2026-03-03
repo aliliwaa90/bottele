@@ -1,129 +1,441 @@
-import { useState, useCallback, useRef, useEffect, memo } from "react";
+import { useState, useCallback, useEffect, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Home, Zap, ListChecks, Users, Trophy,
-} from "lucide-react";
+import { Wallet, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useThrottle } from "@/hooks/usePerformance";
 import { DailyRewardsSpinner } from "@/components/DailyRewardsSpinner";
-import {
-  PremiumCard, GlowingBadge,
-} from "@/components/EnhancedUIComponents";
+import { GlowingBadge } from "@/components/EnhancedUIComponents";
 import { generateDailyRewards } from "@/lib/dailyRewards";
 
+import "./styles/app-premium.css";
+
 /* ═══════════════════════════════════════════════════════════════════
-   OPTIMIZED APP.TSX - HAMSTER BOT INSPIRED
+   PREMIUM APP - FULL FEATURED WITH BEAUTIFUL DESIGN
 ═══════════════════════════════════════════════════════════════════ */
 
 type ActiveTab = "home" | "upgrades" | "tasks" | "friends" | "leaderboard" | "settings";
 
 interface UserStats {
-  points: number;
+  points: string;
   level: number;
   energy: number;
   maxEnergy: number;
   pph: number;
   combo: number;
-  lastTapTime: number;
+  stars: number;
+  walletConnected: boolean;
+  walletAddress: string;
+}
+
+interface Upgrade {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  priceType: "points" | "stars";
+  level: number;
+  maxLevel: number;
+  boost: number;
+  icon: string;
+  category: "tap" | "energy" | "autotap";
 }
 
 const initialStats: UserStats = {
-  points: 125480,
+  points: "125480",
   level: 42,
   energy: 100,
   maxEnergy: 100,
   pph: 1240,
   combo: 0,
-  lastTapTime: 0,
+  stars: 50,
+  walletConnected: false,
+  walletAddress: "",
 };
 
+const UPGRADES: Upgrade[] = [
+  {
+    id: "tap-boost-1",
+    name: "Iron Clicker",
+    description: "Increase tap power by 20%",
+    price: 500,
+    priceType: "stars",
+    level: 0,
+    maxLevel: 10,
+    boost: 1.2,
+    icon: "⚒️",
+    category: "tap",
+  },
+  {
+    id: "tap-boost-2",
+    name: "Golden Touch",
+    description: "Increase tap power by 50%",
+    price: 1000,
+    priceType: "stars",
+    level: 0,
+    maxLevel: 5,
+    boost: 1.5,
+    icon: "✨",
+    category: "tap",
+  },
+  {
+    id: "energy-boost",
+    name: "Energy Shield",
+    description: "Max energy +50",
+    price: 2000,
+    priceType: "points",
+    level: 0,
+    maxLevel: 8,
+    boost: 1.0,
+    icon: "🛡️",
+    category: "energy",
+  },
+  {
+    id: "autotap-1",
+    name: "Auto Clicker",
+    description: "Earn +10 PPH",
+    price: 5000,
+    priceType: "points",
+    level: 0,
+    maxLevel: 20,
+    boost: 1.0,
+    icon: "🤖",
+    category: "autotap",
+  },
+  {
+    id: "autotap-2",
+    name: "Turbo Clicker",
+    description: "Earn +50 PPH",
+    price: 3000,
+    priceType: "stars",
+    level: 0,
+    maxLevel: 10,
+    boost: 1.0,
+    icon: "⚡",
+    category: "autotap",
+  },
+];
+
 /* ═══════════════════════════════════════════════════════════════════
-   TAP HANDLER - OPTIMIZED FOR SPEED
+   TAP BUTTON - BEAUTIFUL DESIGN
 ═══════════════════════════════════════════════════════════════════ */
 const TapButton = memo(function TapButton({
   onTap,
   energy,
   maxEnergy,
   isDisabled,
+  combo,
 }: {
   onTap: () => void;
   energy: number;
   maxEnergy: number;
   isDisabled: boolean;
+  combo: number;
 }) {
   const [scale, setScale] = useState(1);
 
   return (
-    <motion.button
-      onMouseDown={() => !isDisabled && setScale(0.92)}
-      onMouseUp={() => setScale(1)}
-      onMouseLeave={() => setScale(1)}
-      onClick={onTap}
-      disabled={isDisabled}
-      animate={{ scale }}
-      transition={{ type: "spring", stiffness: 400, damping: 17 }}
-      className="relative w-40 h-40 mx-auto mb-8 focus:outline-none"
-    >
-      {/* Hamster Circle Background */}
-      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-400 via-orange-400 to-amber-500 shadow-2xl" />
+    <div className="tap-button-container">
+      <motion.button
+        onMouseDown={() => !isDisabled && setScale(0.88)}
+        onMouseUp={() => setScale(1)}
+        onMouseLeave={() => setScale(1)}
+        onClick={onTap}
+        disabled={isDisabled}
+        animate={{ scale }}
+        transition={{ type: "spring", stiffness: 400, damping: 17 }}
+        className="tap-button"
+      >
+        {/* Glow Effect */}
+        <motion.div
+          className="tap-glow"
+          animate={{
+            boxShadow: [
+              "0 0 20px rgba(251, 191, 36, 0.3)",
+              "0 0 40px rgba(251, 191, 36, 0.6)",
+              "0 0 20px rgba(251, 191, 36, 0.3)",
+            ],
+          }}
+          transition={{ duration: 2, repeat: Infinity }}
+        />
 
-      {/* Shine Effect */}
-      <div className="absolute inset-2 rounded-full bg-gradient-to-br from-white/40 to-transparent" />
-
-      {/* Center Content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-        <span className="text-6xl select-none">🐹</span>
-        <p className="text-sm font-bold mt-1">TAP</p>
-      </div>
-
-      {/* Energy Ring */}
-      <motion.div
-        className="absolute inset-0 rounded-full border-4 border-emerald-400"
-        animate={{ opacity: [0.5, 1, 0.5] }}
-        transition={{ duration: 2, repeat: Infinity }}
-        style={{ opacity: Math.min(energy / maxEnergy, 1) }}
-      />
-
-      {/* Disabled Overlay */}
-      {isDisabled && (
-        <div className="absolute inset-0 rounded-full bg-gray-900/50 flex items-center justify-center">
-          <span className="text-2xl">⚠️</span>
+        {/* Main Circle */}
+        <div className="tap-button-main">
+          <span className="tap-button-icon">💎</span>
+          <p className="tap-button-text">TAP</p>
         </div>
-      )}
-    </motion.button>
-  );
-});
 
-/* ═══════════════════════════════════════════════════════════════════
-   QUICK STATS - HAMSTER BOT STYLE
-═══════════════════════════════════════════════════════════════════ */
-const QuickStats = memo(function QuickStats({ stats }: { stats: UserStats }) {
-  return (
-    <div className="grid grid-cols-4 gap-2 mb-6">
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-lg p-3 text-center">
-        <p className="text-xs text-slate-400">Level</p>
-        <p className="text-lg font-bold text-white">{stats.level}</p>
-      </div>
-      <div className="bg-gradient-to-br from-cyan-900/50 to-cyan-800/30 rounded-lg p-3 text-center">
-        <p className="text-xs text-cyan-300">PPH</p>
-        <p className="text-lg font-bold text-cyan-400">{stats.pph}</p>
-      </div>
-      <div className="bg-gradient-to-br from-emerald-900/50 to-emerald-800/30 rounded-lg p-3 text-center">
-        <p className="text-xs text-emerald-300">Energy</p>
-        <p className="text-lg font-bold text-emerald-400">{stats.energy}%</p>
-      </div>
-      <div className="bg-gradient-to-br from-amber-900/50 to-amber-800/30 rounded-lg p-3 text-center">
-        <p className="text-xs text-amber-300">Combo</p>
-        <p className="text-lg font-bold text-amber-400">×{stats.combo}</p>
+        {/* Energy Ring */}
+        <motion.svg
+          className="tap-energy-ring"
+          viewBox="0 0 100 100"
+          animate={{
+            rotate: 360,
+          }}
+          transition={{
+            duration: 20,
+            repeat: Infinity,
+            ease: "linear",
+          }}
+        >
+          <circle
+            cx="50"
+            cy="50"
+            r="45"
+            fill="none"
+            stroke="rgba(34, 211, 238, 0.3)"
+            strokeWidth="2"
+            strokeDasharray={`${(energy / maxEnergy) * 283} 283`}
+          />
+        </motion.svg>
+
+        {/* Combo Badge */}
+        {combo > 0 && (
+          <motion.div
+            className="tap-combo-badge"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+          >
+            <span className="tap-combo-text">×{combo}</span>
+          </motion.div>
+        )}
+
+        {/* Disabled Overlay */}
+        {isDisabled && (
+          <div className="tap-disabled-overlay">
+            <span className="text-2xl">⚠️</span>
+            <p>Out of Energy</p>
+          </div>
+        )}
+      </motion.button>
+
+      {/* Energy Bar Below */}
+      <div className="tap-energy-bar-container">
+        <div className="tap-energy-label">
+          <span>Energy</span>
+          <span className="tap-energy-value">{Math.round(energy)}/{maxEnergy}</span>
+        </div>
+        <div className="tap-energy-bar">
+          <motion.div
+            className="tap-energy-fill"
+            animate={{ width: `${(energy / maxEnergy) * 100}%` }}
+            transition={{ duration: 0.3 }}
+          />
+        </div>
       </div>
     </div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════════
-   NAVIGATION - BOTTOM TABBAR
+   STATS DISPLAY - HAMSTER BOT STYLE
+═══════════════════════════════════════════════════════════════════ */
+const StatsDisplay = memo(function StatsDisplay({ stats }: { stats: UserStats }) {
+  return (
+    <div className="stats-grid">
+      {/* Main Points */}
+      <motion.div
+        className="stat-card stat-card-main"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="stat-card-inner">
+          <p className="stat-label">💰 Points</p>
+          <motion.p
+            className="stat-value-main"
+            animate={{ scale: [1, 1.02, 1] }}
+            transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 3 }}
+          >
+            {parseInt(stats.points).toLocaleString()}
+          </motion.p>
+        </div>
+      </motion.div>
+
+      {/* Level */}
+      <motion.div
+        className="stat-card stat-card-level"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
+        <p className="stat-label">⭐ Level</p>
+        <p className="stat-value">{stats.level}</p>
+      </motion.div>
+
+      {/* PPH */}
+      <motion.div
+        className="stat-card stat-card-pph"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+      >
+        <p className="stat-label">💰 PPH</p>
+        <p className="stat-value">{stats.pph}</p>
+      </motion.div>
+
+      {/* Stars */}
+      <motion.div
+        className="stat-card stat-card-stars"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
+      >
+        <p className="stat-label">⭐ Stars</p>
+        <p className="stat-value">{stats.stars}</p>
+      </motion.div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   WALLET CONNECTION
+═══════════════════════════════════════════════════════════════════ */
+const WalletButton = memo(function WalletButton({
+  connected,
+  address,
+  onConnect,
+}: {
+  connected: boolean;
+  address: string;
+  onConnect: () => void;
+}) {
+  return (
+    <motion.button
+      onClick={onConnect}
+      className={`wallet-button ${connected ? "connected" : ""}`}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
+    >
+      <Wallet size={16} />
+      <span>
+        {connected ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Connect Wallet"}
+      </span>
+    </motion.button>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   UPGRADE CARD
+═══════════════════════════════════════════════════════════════════ */
+const UpgradeCard = memo(function UpgradeCard({
+  upgrade,
+  onBuy,
+  canAfford,
+}: {
+  upgrade: Upgrade;
+  onBuy: () => void;
+  canAfford: boolean;
+}) {
+  return (
+    <motion.div
+      className={`upgrade-card upgrade-category-${upgrade.category}`}
+      whileHover={{ y: -4, scale: 1.02 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+    >
+      <div className="upgrade-header">
+        <span className="upgrade-icon">{upgrade.icon}</span>
+        <div className="upgrade-info">
+          <p className="upgrade-name">{upgrade.name}</p>
+          <p className="upgrade-desc">{upgrade.description}</p>
+        </div>
+        <div className="upgrade-level">
+          <span className="upgrade-level-badge">Lv.{upgrade.level}</span>
+        </div>
+      </div>
+
+      <div className="upgrade-footer">
+        <div className="upgrade-price">
+          <span className={`upgrade-price-icon ${upgrade.priceType}`}>
+            {upgrade.priceType === "stars" ? "⭐" : "💰"}
+          </span>
+          <span className="upgrade-price-value">{upgrade.price}</span>
+        </div>
+        <motion.button
+          className={`upgrade-button ${canAfford ? "affordable" : "unaffordable"}`}
+          onClick={onBuy}
+          disabled={!canAfford}
+          whileTap={{ scale: 0.95 }}
+        >
+          {canAfford ? "Buy" : "Can't Afford"}
+        </motion.button>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="upgrade-progress">
+        <div className="upgrade-progress-bar">
+          <motion.div
+            className="upgrade-progress-fill"
+            animate={{ width: `${(upgrade.level / upgrade.maxLevel) * 100}%` }}
+            transition={{ duration: 0.3 }}
+          />
+        </div>
+        <span className="upgrade-progress-text">
+          {upgrade.level}/{upgrade.maxLevel}
+        </span>
+      </div>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   LANGUAGE SWITCHER
+═══════════════════════════════════════════════════════════════════ */
+const LanguageSwitcher = memo(function LanguageSwitcher() {
+  const { i18n } = useTranslation();
+  const [showLangs, setShowLangs] = useState(false);
+
+  const languages = [
+    { code: "ar", name: "العربية" },
+    { code: "en", name: "English" },
+    { code: "fa", name: "فارسی" },
+    { code: "ru", name: "Русский" },
+    { code: "tr", name: "Türkçe" },
+  ];
+
+  return (
+    <div className="language-switcher">
+      <motion.button
+        className="lang-button"
+        onClick={() => setShowLangs(!showLangs)}
+        whileTap={{ scale: 0.95 }}
+      >
+        <span>🌐</span>
+        <span>{i18n.language.toUpperCase()}</span>
+      </motion.button>
+
+      <AnimatePresence>
+        {showLangs && (
+          <motion.div
+            className="lang-dropdown"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            {languages.map((lang) => (
+              <motion.button
+                key={lang.code}
+                className={`lang-option ${i18n.language === lang.code ? "active" : ""}`}
+                onClick={() => {
+                  i18n.changeLanguage(lang.code);
+                  setShowLangs(false);
+                }}
+                whileHover={{ x: 4 }}
+              >
+                {lang.name}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   NAVIGATION BAR
 ═══════════════════════════════════════════════════════════════════ */
 const BottomNav = memo(function BottomNav({
   active,
@@ -132,100 +444,71 @@ const BottomNav = memo(function BottomNav({
   active: ActiveTab;
   onChange: (tab: ActiveTab) => void;
 }) {
-  const navItems: Array<{ id: ActiveTab; label: string; icon: any }> = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "upgrades", label: "Upgrades", icon: Zap },
-    { id: "tasks", label: "Tasks", icon: ListChecks },
-    { id: "friends", label: "Friends", icon: Users },
-    { id: "leaderboard", label: "Ranking", icon: Trophy },
+  const navItems: Array<{ id: ActiveTab; icon: string; label: string }> = [
+    { id: "home", icon: "🏠", label: "Home" },
+    { id: "upgrades", icon: "⚡", label: "Upgrades" },
+    { id: "tasks", icon: "📋", label: "Tasks" },
+    { id: "friends", icon: "👥", label: "Friends" },
+    { id: "leaderboard", icon: "🏆", label: "Rank" },
   ];
 
   return (
-    <motion.div
-      className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-slate-900 to-slate-800/80 border-t border-slate-700 backdrop-blur-md"
-      initial={{ y: 100 }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div className="max-w-md mx-auto flex items-center justify-around px-2 py-3">
-        {navItems.map((item) => {
-          const isActive = active === item.id;
-          const Icon = item.icon;
-          return (
-            <motion.button
-              key={item.id}
-              onClick={() => onChange(item.id)}
-              className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-all"
-              whileTap={{ scale: 0.9 }}
-            >
-              <motion.div
-                animate={{
-                  scale: isActive ? 1.2 : 1,
-                  color: isActive ? "#fbbf24" : "#94a3b8",
-                }}
-              >
-                <Icon size={20} />
-              </motion.div>
-              <span
-                className={`text-xs font-medium ${
-                  isActive ? "text-amber-400" : "text-slate-400"
-                }`}
-              >
-                {item.label}
-              </span>
-              {isActive && (
-                <motion.div
-                  className="h-1 w-6 bg-amber-400 rounded-full"
-                  layoutId="activeTab"
-                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                />
-              )}
-            </motion.button>
-          );
-        })}
+    <motion.div className="bottom-nav" initial={{ y: 100 }} animate={{ y: 0 }}>
+      <div className="bottom-nav-inner">
+        {navItems.map((item) => (
+          <motion.button
+            key={item.id}
+            className={`nav-item ${active === item.id ? "active" : ""}`}
+            onClick={() => onChange(item.id)}
+            whileTap={{ scale: 0.9 }}
+          >
+            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-label">{item.label}</span>
+            {active === item.id && <motion.div className="nav-indicator" layoutId="active" />}
+          </motion.button>
+        ))}
       </div>
     </motion.div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════════
-   SCREEN COMPONENTS
+   HOME SCREEN
 ═══════════════════════════════════════════════════════════════════ */
 const HomeScreen = memo(function HomeScreen({
   stats,
   onTap,
   onShowDaily,
+  onWalletConnect,
 }: {
   stats: UserStats;
   onTap: () => void;
   onShowDaily: () => void;
+  onWalletConnect: () => void;
 }) {
   const { i18n } = useTranslation();
   const isRTL = ["ar", "fa"].includes(i18n.language);
 
   return (
     <motion.div
+      key="home"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className={`min-h-screen pb-28 pt-6 px-4 ${isRTL ? "rtl" : "ltr"}`}
+      className={`screen home-screen ${isRTL ? "rtl" : "ltr"}`}
     >
-      {/* Header with Points Display */}
-      <div className="text-center mb-8">
-        <motion.div
-          className="inline-block"
-          animate={{ scale: [1, 1.05, 1] }}
-          transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
-        >
-          <p className="text-sm text-slate-400 mb-2">Your Points</p>
-          <p className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-            {stats.points.toLocaleString()}
-          </p>
-        </motion.div>
+      {/* Header */}
+      <div className="screen-header">
+        <LanguageSwitcher />
+        <WalletButton
+          connected={stats.walletConnected}
+          address={stats.walletAddress}
+          onConnect={onWalletConnect}
+        />
       </div>
 
-      {/* Quick Stats */}
-      <QuickStats stats={stats} />
+      {/* Stats */}
+      <StatsDisplay stats={stats} />
 
       {/* Tap Button */}
       <TapButton
@@ -233,138 +516,180 @@ const HomeScreen = memo(function HomeScreen({
         energy={stats.energy}
         maxEnergy={stats.maxEnergy}
         isDisabled={stats.energy < 10}
+        combo={stats.combo}
       />
 
-      {/* Daily Rewards Button */}
+      {/* Daily Rewards */}
       <motion.button
+        className="daily-button"
         onClick={onShowDaily}
-        className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold flex items-center justify-center gap-2 mb-4"
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
       >
-        <span>🎁</span>
-        Daily Rewards
-        <span>→</span>
+        <span className="daily-icon">🎁</span>
+        <div className="daily-content">
+          <p className="daily-title">Daily Rewards</p>
+          <p className="daily-subtitle">Claim your daily bonus</p>
+        </div>
+        <span className="daily-arrow">→</span>
       </motion.button>
 
-      {/* Quick Links */}
-      <div className="space-y-3">
-        <PremiumCard variant="gold">
-          <div className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-300">Next Level</p>
-                <p className="text-2xl font-bold text-white">Level {stats.level + 1}</p>
-              </div>
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400/30 to-orange-500/30 flex items-center justify-center">
-                <span className="text-3xl">⭐</span>
-              </div>
-            </div>
+      {/* Quick Stats */}
+      <div className="quick-stats">
+        <GlowingBadge color="gold">
+          <span>🔥</span>
+          <span>Combo: ×{stats.combo}</span>
+        </GlowingBadge>
+        <GlowingBadge color="cyan">
+          <Sparkles size={14} />
+          <span>Streak: 12 days</span>
+        </GlowingBadge>
+      </div>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   UPGRADES SCREEN
+═══════════════════════════════════════════════════════════════════ */
+const UpgradesScreen = memo(function UpgradesScreen({
+  stats,
+}: {
+  stats: UserStats;
+}) {
+  const categories = [
+    { id: "tap", name: "⚒️ Tap Power", emojis: ["⚒️", "✨", "💥"] },
+    { id: "energy", name: "🔋 Energy", emojis: ["🔋", "⚡", "🛡️"] },
+    { id: "autotap", name: "🤖 Auto Tap", emojis: ["🤖", "⚡", "🚀"] },
+  ];
+
+  return (
+    <motion.div
+      key="upgrades"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="screen upgrades-screen"
+    >
+      <h1 className="screen-title">⚡ Upgrades & Boosts</h1>
+
+      {categories.map((category) => (
+        <div key={category.id} className="upgrade-category">
+          <h2 className="category-title">{category.name}</h2>
+          <div className="upgrade-list">
+            {UPGRADES.filter((u) => u.category === category.id).map((upgrade) => (
+              <UpgradeCard
+                key={upgrade.id}
+                upgrade={upgrade}
+                onBuy={() =>
+                  toast.success(
+                    `Purchased ${upgrade.name} for ${upgrade.price} ${
+                      upgrade.priceType === "stars" ? "⭐" : "💰"
+                    }`
+                  )
+                }
+                canAfford={
+                  upgrade.priceType === "stars"
+                    ? stats.stars >= upgrade.price
+                    : parseInt(stats.points) >= upgrade.price
+                }
+              />
+            ))}
           </div>
-        </PremiumCard>
-      </div>
+        </div>
+      ))}
     </motion.div>
   );
 });
 
-const UpgradesScreen = memo(function UpgradesScreen() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="min-h-screen pb-28 pt-6 px-4"
-    >
-      <h1 className="text-3xl font-bold text-white mb-6">⚡ Upgrades</h1>
-      <div className="space-y-4">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <PremiumCard key={i} variant={["gold", "cyan", "violet", "default", "gold"][i % 5] as any}>
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <p className="font-bold text-white">Upgrade {i}</p>
-                <p className="text-sm text-slate-400">Cost: 50,000 points</p>
-              </div>
-              <motion.button
-                className="px-4 py-2 rounded-lg bg-amber-500 text-white font-bold text-sm"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Buy
-              </motion.button>
-            </div>
-          </PremiumCard>
-        ))}
-      </div>
-    </motion.div>
-  );
-});
-
+/* ═══════════════════════════════════════════════════════════════════
+   TASKS SCREEN
+═══════════════════════════════════════════════════════════════════ */
 const TasksScreen = memo(function TasksScreen() {
+  const tasks = [
+    {
+      id: 1,
+      title: "Follow on Twitter",
+      reward: 1000,
+      icon: "🐦",
+      completed: false,
+    },
+    { id: 2, title: "Join Discord", reward: 1500, icon: "💜", completed: false },
+    { id: 3, title: "Visit Website", reward: 500, icon: "🌐", completed: true },
+  ];
+
   return (
     <motion.div
+      key="tasks"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen pb-28 pt-6 px-4"
+      className="screen tasks-screen"
     >
-      <h1 className="text-3xl font-bold text-white mb-6">📋 Tasks</h1>
-      <div className="space-y-3">
-        {[
-          { title: "Follow on Twitter", reward: 1000, icon: "🐦" },
-          { title: "Join Discord", reward: 1500, icon: "💜" },
-          { title: "Visit Website", reward: 500, icon: "🌐" },
-        ].map((task, i) => (
-          <PremiumCard key={i} variant="cyan">
-            <div className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{task.icon}</span>
-                <div>
-                  <p className="font-bold text-white">{task.title}</p>
-                  <p className="text-sm text-cyan-300">+{task.reward} points</p>
-                </div>
+      <h1 className="screen-title">📋 Tasks & Missions</h1>
+      <div className="tasks-list">
+        {tasks.map((task) => (
+          <motion.div
+            key={task.id}
+            className={`task-item ${task.completed ? "completed" : ""}`}
+            whileHover={{ scale: 1.02 }}
+          >
+            <div className="task-left">
+              <span className="task-icon">{task.icon}</span>
+              <div className="task-info">
+                <p className="task-title">{task.title}</p>
+                <p className="task-reward">+{task.reward} points</p>
               </div>
-              <motion.button
-                className="px-3 py-1 rounded-lg bg-cyan-500 text-white font-bold text-sm"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Do
-              </motion.button>
             </div>
-          </PremiumCard>
+            <motion.button
+              className="task-button"
+              whileTap={{ scale: 0.95 }}
+              disabled={task.completed}
+            >
+              {task.completed ? "✅" : "Start"}
+            </motion.button>
+          </motion.div>
         ))}
       </div>
     </motion.div>
   );
 });
 
+/* ═══════════════════════════════════════════════════════════════════
+   FRIENDS SCREEN
+═══════════════════════════════════════════════════════════════════ */
 const FriendsScreen = memo(function FriendsScreen() {
   return (
     <motion.div
+      key="friends"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen pb-28 pt-6 px-4"
+      className="screen friends-screen"
     >
-      <h1 className="text-3xl font-bold text-white mb-6">👥 Friends</h1>
-      <GlowingBadge color="emerald">
-        <span className="text-center block">🔗 Referral Link Copied</span>
-      </GlowingBadge>
-      <div className="space-y-2">
-        {["Ali", "Sara", "Ahmed", "Fatima"].map((name, i) => (
+      <h1 className="screen-title">👥 Friends & Referrals</h1>
+      <motion.button
+        className="referral-button"
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <span>🔗 Copy Referral Link</span>
+      </motion.button>
+      <div className="friends-list">
+        {[
+          { name: "Ali", points: 250, streak: 5 },
+          { name: "Sara", points: 500, streak: 12 },
+          { name: "Ahmed", points: 1000, streak: 30 },
+        ].map((friend, i) => (
           <motion.div
             key={i}
-            className="p-4 rounded-xl bg-gradient-to-r from-slate-800 to-slate-900 flex items-center justify-between"
-            whileHover={{ scale: 1.02 }}
+            className="friend-item"
+            whileHover={{ x: 4 }}
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                <span className="text-lg">👤</span>
-              </div>
-              <div>
-                <p className="font-bold text-white">{name}</p>
-                <p className="text-xs text-slate-400">+250 points</p>
-              </div>
+            <div className="friend-avatar">{friend.name[0]}</div>
+            <div className="friend-info">
+              <p className="friend-name">{friend.name}</p>
+              <p className="friend-points">{friend.points} points • {friend.streak} days</p>
             </div>
           </motion.div>
         ))}
@@ -373,16 +698,20 @@ const FriendsScreen = memo(function FriendsScreen() {
   );
 });
 
+/* ═══════════════════════════════════════════════════════════════════
+   LEADERBOARD SCREEN
+═══════════════════════════════════════════════════════════════════ */
 const LeaderboardScreen = memo(function LeaderboardScreen() {
   return (
     <motion.div
+      key="leaderboard"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="min-h-screen pb-28 pt-6 px-4"
+      className="screen leaderboard-screen"
     >
-      <h1 className="text-3xl font-bold text-white mb-6">🏆 Leaderboard</h1>
-      <div className="space-y-2">
+      <h1 className="screen-title">🏆 Global Leaderboard</h1>
+      <div className="leaderboard-list">
         {[
           { rank: 1, name: "You", points: 2500000, icon: "👑" },
           { rank: 2, name: "Ahmed", points: 2480000, icon: "🥈" },
@@ -392,21 +721,15 @@ const LeaderboardScreen = memo(function LeaderboardScreen() {
         ].map((item) => (
           <motion.div
             key={item.rank}
-            className={`p-4 rounded-xl flex items-center justify-between ${
-              item.rank === 1
-                ? "bg-gradient-to-r from-amber-600 to-orange-600"
-                : "bg-gradient-to-r from-slate-800 to-slate-900"
-            }`}
+            className={`leaderboard-item rank-${item.rank}`}
             whileHover={{ scale: 1.02 }}
           >
-            <div className="flex items-center gap-3">
-              <span className="text-2xl">{item.icon}</span>
-              <div>
-                <p className="font-bold text-white">{item.name}</p>
-                <p className="text-sm text-slate-400">{item.points.toLocaleString()}</p>
-              </div>
+            <div className="leaderboard-rank">{item.icon}</div>
+            <div className="leaderboard-info">
+              <p className="leaderboard-name">{item.name}</p>
+              <p className="leaderboard-points">{item.points.toLocaleString()}</p>
             </div>
-            <span className="text-sm font-bold text-slate-300">#{item.rank}</span>
+            <div className="leaderboard-position">#{item.rank}</div>
           </motion.div>
         ))}
       </div>
@@ -415,53 +738,51 @@ const LeaderboardScreen = memo(function LeaderboardScreen() {
 });
 
 /* ═══════════════════════════════════════════════════════════════════
-   MAIN APP COMPONENT
+   MAIN APP
 ═══════════════════════════════════════════════════════════════════ */
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("home");
   const [stats, setStats] = useState<UserStats>(initialStats);
   const [showDaily, setShowDaily] = useState(false);
   const [rewards] = useState(() => generateDailyRewards());
-  const tapCountRef = useRef(0);
-  const energyRechargeRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
-  /* Fast tap handler with throttle */
   const handleTap = useThrottle(() => {
     if (stats.energy < 10) {
-      toast.error("No energy!");
+      toast.error("No energy! Recharging...");
       return;
     }
 
-    tapCountRef.current += 1;
     const tapValue = 10;
-    const newCombo = Math.min(stats.combo + 1, 100);
-
     setStats((prev) => ({
       ...prev,
-      points: prev.points + tapValue,
+      points: String(parseInt(prev.points) + tapValue),
       energy: Math.max(prev.energy - 5, 0),
-      combo: newCombo,
-      lastTapTime: Date.now(),
+      combo: Math.min(prev.combo + 1, 100),
     }));
-  }, 80); // Ultra-fast 80ms throttle
+  }, 80);
 
-  /* Energy recharge */
+  // Energy recharge
   useEffect(() => {
     if (stats.energy >= stats.maxEnergy) return;
-
-    energyRechargeRef.current = setInterval(() => {
+    const timer = setInterval(() => {
       setStats((prev) => ({
         ...prev,
         energy: Math.min(prev.energy + 1, prev.maxEnergy),
       }));
     }, 3000);
-
-    return () => clearInterval(energyRechargeRef.current);
+    return () => clearInterval(timer);
   }, [stats.energy, stats.maxEnergy]);
 
-  const handleShowDaily = useCallback(() => {
-    setShowDaily(true);
-  }, []);
+  const handleWalletConnect = useCallback(() => {
+    setStats((prev) => ({
+      ...prev,
+      walletConnected: !prev.walletConnected,
+      walletAddress: prev.walletConnected
+        ? ""
+        : "0x" + Math.random().toString(16).slice(2, 10),
+    }));
+    toast.success(stats.walletConnected ? "Wallet disconnected" : "Wallet connected!");
+  }, [stats.walletConnected]);
 
   const handleClaimDaily = useCallback((day: number) => {
     const reward = rewards[day - 1];
@@ -469,32 +790,31 @@ export default function App() {
       const amount = Math.floor(reward.baseReward * reward.multiplier);
       setStats((prev) => ({
         ...prev,
-        points: prev.points + amount,
+        points: String(parseInt(prev.points) + amount),
       }));
       toast.success(`+${amount} points! 🎉`);
     }
   }, [rewards]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className="app-container">
       <AnimatePresence mode="wait">
         {activeTab === "home" && (
           <HomeScreen
-            key="home"
             stats={stats}
             onTap={handleTap}
-            onShowDaily={handleShowDaily}
+            onShowDaily={() => setShowDaily(true)}
+            onWalletConnect={handleWalletConnect}
           />
         )}
-        {activeTab === "upgrades" && <UpgradesScreen key="upgrades" />}
-        {activeTab === "tasks" && <TasksScreen key="tasks" />}
-        {activeTab === "friends" && <FriendsScreen key="friends" />}
-        {activeTab === "leaderboard" && <LeaderboardScreen key="leaderboard" />}
+        {activeTab === "upgrades" && <UpgradesScreen stats={stats} />}
+        {activeTab === "tasks" && <TasksScreen />}
+        {activeTab === "friends" && <FriendsScreen />}
+        {activeTab === "leaderboard" && <LeaderboardScreen />}
       </AnimatePresence>
 
       <BottomNav active={activeTab} onChange={setActiveTab} />
 
-      {/* Daily Rewards Spinner */}
       <DailyRewardsSpinner
         isOpen={showDaily}
         onClose={() => setShowDaily(false)}
